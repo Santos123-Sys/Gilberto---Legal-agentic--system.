@@ -1,0 +1,11 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[build.args]
+VITE_API_URL = "$BACKEND_URL"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"

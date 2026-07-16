@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gold: #d4a843;
+  --gold-light: #e8c254;
+  --bg-primary: #060b14;
+  --bg-secondary: #0a0f1a;
+  --bg-card: #0f1623;
+  --bg-elevated: #141d2e;
+  --border: rgba(212, 168, 67, 0.15);
+  --border-strong: rgba(212, 168, 67, 0.35);
+  --text-primary: #e8eaf0;
+  --text-secondary: #8892a4;
+  --text-muted: #4a5568;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gold); }
+
+/* Typing cursor */
+.typing-cursor::after {
+  content: '▋';
+  animation: blink 1s step-end infinite;
+  color: var(--gold);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Gold gradient text */
+.text-gold-gradient {
+  background: linear-gradient(135deg, #d4a843 0%, #f5d98a 50%, #d4a843 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Card base */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* Noise texture overlay */
+.noise::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 0;
+}
+
+/* Risk badges */
+.risk-critical { @apply bg-red-500/10 text-red-400 border border-red-500/20; }
+.risk-high     { @apply bg-orange-500/10 text-orange-400 border border-orange-500/20; }
+.risk-medium   { @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20; }
+.risk-low      { @apply bg-green-500/10 text-green-400 border border-green-500/20; }
+
+/* Agent status pulse */
+.agent-active {
+  box-shadow: 0 0 0 0 rgba(212, 168, 67, 0.7);
+  animation: agent-pulse 2s ease-out infinite;
+}
+
+@keyframes agent-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(212, 168, 67, 0.7); }
+  70%  { box-shadow: 0 0 0 10px rgba(212, 168, 67, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 168, 67, 0); }
+}
