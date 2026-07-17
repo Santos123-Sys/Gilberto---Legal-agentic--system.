@@ -64,6 +64,32 @@ MARKET_PARAMETERS = {
     "electronic_signature_law": "Lei 14.063/2020; MP 2.200-2/2001 (ICP-Brasil)",
 }
 
+# ── WORKFLOW CHECKLISTS (restored — required by cluster_definitions.py) ──
+WORKFLOW_CHECKLISTS: Dict[str, List[str]] = {
+    "Passo 0": [
+        "Classificar complexidade do contrato (LOW/MEDIUM/HIGH)",
+        "Identificar tipo contratual e regime estatutário aplicável",
+    ],
+    "Passo 1": [
+        "Verificar campos em branco, anexos ausentes e referências cruzadas quebradas",
+        "Confirmar consistência entre recitais e cláusulas operativas",
+    ],
+    "Passo 2": [
+        "Qualificar todas as partes e intervenientes (CNPJ/CPF, endereço, representante)",
+        "Validar poderes de representação (contrato social, procuração, alçada)",
+    ],
+    "Passo 3": ["Verificar precisão e enforceability do objeto contratual"],
+    "Passo 4": ["Analisar preço, índice de correção, juros e multa moratória"],
+    "Passo 5": ["Checar cláusula penal contra o teto do art. 412 CC"],
+    "Passo 6": ["Avaliar adequação de garantias reais e fidejussórias"],
+    "Passo 7": ["Analisar prazo, renovação, resilição e onerosidade excessiva"],
+    "Passo 8": ["Verificar obrigações especiais e de compliance"],
+    "Passo 9": ["Analisar cláusulas de disputa, foro e arbitragem"],
+    "Passo 10": ["Revisar disposições gerais"],
+    "Passo 11": ["Aplicar fórmula de risco global e consolidar findings"],
+    "Passo 12": ["Gerar síntese final e checklist de aprovação"],
+}
+
 # ════════════════════════════════════════════════════════
 #  AGENTES — CHECKLISTS E PROMPTS REVISADOS
 # ════════════════════════════════════════════════════════
