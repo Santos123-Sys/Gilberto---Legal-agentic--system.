@@ -20,6 +20,22 @@ function messageFromError(err) {
   return err?.message || 'Ocorreu um erro inesperado.'
 }
 
+function apiErrorMessage(detail, fallback) {
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const messages = detail.map(issue => {
+      if (!issue || typeof issue !== 'object') return String(issue)
+      const location = Array.isArray(issue.loc) ? issue.loc.filter(part => part !== 'body').join('.') : ''
+      return [location, issue.msg || issue.message].filter(Boolean).join(': ')
+    }).filter(Boolean)
+    if (messages.length) return messages.join('; ')
+  }
+  if (detail && typeof detail === 'object') {
+    return detail.message || detail.error || detail.detail || JSON.stringify(detail)
+  }
+  return fallback
+}
+
 function statusFromServer(status) {
   if (status === 'created') return 'preview'
   if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(status)) return status
@@ -92,7 +108,7 @@ export function useAgenticSession() {
 
       if (!res.ok) {
         const errorBody = await res.json().catch(() => ({}))
-        throw new Error(errorBody.detail || `HTTP ${res.status}`)
+        throw new Error(apiErrorMessage(errorBody.detail, `HTTP ${res.status}`))
       }
 
       const data = await res.json()
@@ -113,7 +129,7 @@ export function useAgenticSession() {
       setStatus('error')
       return false
     }
-    if (!selectedFile) {
+    if (!(selectedFile instanceof Blob)) {
       setError('Select a contract file before starting the debate.')
       setStatus('error')
       return false
@@ -134,7 +150,7 @@ export function useAgenticSession() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || `HTTP ${res.status}`)
+        throw new Error(apiErrorMessage(err.detail, `HTTP ${res.status}`))
       }
 
       setStatus('running')
