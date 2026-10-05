@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [build.args]
-VITE_API_URL = "$BACKEND_URL"
+VITE_API_URL = "https://gilberto-legal-agentic-system-production.up.railway.app"
 
 [deploy]
 healthcheckPath = "/"
