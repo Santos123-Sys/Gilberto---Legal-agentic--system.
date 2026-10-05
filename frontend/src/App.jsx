@@ -142,7 +142,7 @@ export default function App() {
         {isPreview && session.config && (
           <IntentPreview
             config={session.config}
-            onConfirm={(file) => session.confirmAndStart(file)}
+            onConfirm={() => session.confirmAndStart()}
             onEdit={session.reset}
           />
         )}
