@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     )
     EXECUTION_MODE: str = os.getenv("EXECUTION_MODE", "parallel")
 
+    # Pace provider traffic while keeping cluster orchestration parallel.
+    LLM_MAX_CONCURRENT_CALLS: int = int(os.getenv("LLM_MAX_CONCURRENT_CALLS", "1"))
+    LLM_MIN_REQUEST_INTERVAL_SECONDS: float = float(
+        os.getenv("LLM_MIN_REQUEST_INTERVAL_SECONDS", "2.0")
+    )
+    LLM_INPUT_TOKENS_PER_MINUTE: int = int(
+        os.getenv("LLM_INPUT_TOKENS_PER_MINUTE", "10000")
+    )
+
     # ── Observability ────────────────────────
     AGENTOPS_API_KEY: Optional[str] = os.getenv("AGENTOPS_API_KEY", None)
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
