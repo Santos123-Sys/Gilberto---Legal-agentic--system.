@@ -255,8 +255,11 @@ function ClusterResultCard({ id, result }) {
 
       {findings.length > 0 && (
         <ul className="mt-2 space-y-1">
-          {findings.slice(0, 2).map((f, i) => (
-            <li key={i} className="text-xs text-slate-400 line-clamp-1">• {displayValue(f)}</li>
+          {findings.map((f, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-xs text-slate-400 leading-relaxed min-w-0">
+              <span aria-hidden="true" className="shrink-0">•</span>
+              <span className="min-w-0 whitespace-pre-wrap break-words">{displayValue(f)}</span>
+            </li>
           ))}
         </ul>
       )}
