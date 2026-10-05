@@ -15,6 +15,7 @@ export function useAgenticSession() {
   const [executionMetrics, setExecutionMetrics] = useState({})
   const [error, setError] = useState(null)
   const [config, setConfig] = useState(null)
+  const [documentFile, setDocumentFile] = useState(null)
   const [showIntentPreview, setShowIntentPreview] = useState(false)
 
   const eventSourceRef = useRef(null)
@@ -29,19 +30,38 @@ export function useAgenticSession() {
     }
   }, [])
 
-  const createSession = useCallback(async (sessionConfig) => {
+  const createSession = useCallback(async (sessionConfig, file) => {
+    const workflowType = sessionConfig.workflowType ?? sessionConfig.workflow_type
+    const workflowTypes = {
+      full_analysis: 'general',
+      contract_review: 'contract_review',
+      corporate_governance: 'governance',
+      compliance_check: 'regulatory',
+    }
+    const apiConfig = {
+      num_agents: Number(sessionConfig.numAgents ?? sessionConfig.num_agents ?? 3),
+      num_rounds: Number(sessionConfig.numRounds ?? sessionConfig.num_rounds ?? 2),
+      workflow_type: workflowTypes[workflowType] || workflowType || 'contract_review',
+      jurisdiction: sessionConfig.jurisdiction || 'BR',
+      urgency: sessionConfig.urgency || 'normal',
+    }
+
     setStatus('creating')
-    setConfig(sessionConfig)
+    setConfig(apiConfig)
+    setDocumentFile(file || null)
     setError(null)
 
     try {
       const res = await fetch(`${API_BASE}/api/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sessionConfig),
+        body: JSON.stringify(apiConfig),
       })
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}))
+        throw new Error(errorBody.detail || `HTTP ${res.status}`)
+      }
 
       const data = await res.json()
       setSessionId(data.session_id)
@@ -55,15 +75,24 @@ export function useAgenticSession() {
     }
   }, [])
 
-  const confirmAndStart = useCallback(async (file) => {
-    if (!sessionId || !file) return
+  const confirmAndStart = useCallback(async (selectedFile = documentFile) => {
+    if (!sessionId) {
+      setError('Create an analysis session before starting the debate.')
+      setStatus('error')
+      return false
+    }
+    if (!selectedFile) {
+      setError('Select a contract file before starting the debate.')
+      setStatus('error')
+      return false
+    }
 
     setStatus('uploading')
     setShowIntentPreview(false)
 
     try {
       const formData = new FormData()
-      formData.append('document', file)
+      formData.append('document', selectedFile)
 
       const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/start`, {
         method: 'POST',
@@ -71,17 +100,19 @@ export function useAgenticSession() {
       })
 
       if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || 'Upload failed')
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || `HTTP ${res.status}`)
       }
 
       setStatus('running')
       connectStream(sessionId)
+      return true
     } catch (err) {
       setError(`Failed to start: ${err.message}`)
       setStatus('error')
+      return false
     }
-  }, [sessionId])
+  }, [sessionId, documentFile])
 
   const connectStream = useCallback((sid) => {
     if (eventSourceRef.current) {
@@ -270,6 +301,7 @@ export function useAgenticSession() {
     setExecutionMetrics({})
     setError(null)
     setConfig(null)
+    setDocumentFile(null)
     setShowIntentPreview(false)
     cursorRef.current = 0
   }, [])
