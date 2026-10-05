@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from config import settings
+from document_extractor import DocumentExtractionError, extract_document_text
 from engines.debate_engine_v3 import DebateEngineV3
 from models.schemas import (
     FeedbackRequest,
@@ -227,12 +228,9 @@ async def start_session(session_id: str, document: UploadFile = File(...)):
     content = await document.read()
 
     try:
-        document_text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        document_text = content.decode("latin-1", errors="replace")
-
-    if len(document_text.strip()) < 50:
-        raise HTTPException(status_code=400, detail="Document appears to be empty or too short")
+        document_text = extract_document_text(document.filename or "", content)
+    except DocumentExtractionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     session["document_text"] = document_text
     session["document_name"] = document.filename
@@ -244,6 +242,8 @@ async def start_session(session_id: str, document: UploadFile = File(...)):
         "status": "started",
         "session_id": session_id,
         "filename": document.filename,
+        "document_format": (document.filename or "").rsplit(".", 1)[-1].lower(),
+        "extracted_characters": len(document_text),
         "architecture": "parallel_v3",
     }
 
