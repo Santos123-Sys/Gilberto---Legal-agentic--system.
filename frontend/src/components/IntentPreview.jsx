@@ -99,7 +99,7 @@ export function IntentPreview({ config, onConfirm, onEdit }) {
       {/* Actions */}
       <div className="flex gap-3 mt-6">
         <button
-          onClick={onConfirm}
+          onClick={() => onConfirm()}
           className="flex-1 btn-primary flex items-center justify-center gap-2"
         >
           Proceed with Analysis <ArrowRight size={16} />
