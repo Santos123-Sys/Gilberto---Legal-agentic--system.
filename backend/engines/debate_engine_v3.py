@@ -611,7 +611,24 @@ class DebateEngineV3:
         self,
         document_text: str,
     ) -> AsyncGenerator[Dict, None]:
-        """Execute full debate: parallel clusters → DA → Master → Gates."""
+        """Stream debate events as they occur while the run executes."""
+        execution = asyncio.create_task(self._execute_debate(document_text))
+        execution.add_done_callback(lambda _: self._event_queue.put_nowait(None))
+
+        try:
+            while True:
+                event = await self._event_queue.get()
+                if event is None:
+                    break
+                yield event
+            await execution
+        except BaseException:
+            if not execution.done():
+                execution.cancel()
+            raise
+
+    async def _execute_debate(self, document_text: str) -> None:
+        """Execute parallel clusters → Devil's Advocate → synthesis → gates."""
 
         total_start = time.time()
         self._running = True
@@ -717,15 +734,31 @@ class DebateEngineV3:
 
         self._running = False
 
-        # Drain remaining events
-        while not self._event_queue.empty():
-            yield await self._event_queue.get()
 
     async def process_feedback(
         self,
         feedback: str,
         document_text: str,
     ) -> AsyncGenerator[Dict, None]:
+        """Stream feedback re-analysis events as they occur."""
+        execution = asyncio.create_task(
+            self._execute_process_feedback(feedback, document_text)
+        )
+        execution.add_done_callback(lambda _: self._event_queue.put_nowait(None))
+
+        try:
+            while True:
+                event = await self._event_queue.get()
+                if event is None:
+                    break
+                yield event
+            await execution
+        except BaseException:
+            if not execution.done():
+                execution.cancel()
+            raise
+
+    async def _execute_process_feedback(self, feedback: str, document_text: str) -> None:
         """Process user feedback with cluster re-routing."""
 
         new_round = self.current_round + 1
@@ -829,8 +862,6 @@ class DebateEngineV3:
             message="Feedback incorporated. Analysis updated.",
         ))
 
-        while not self._event_queue.empty():
-            yield await self._event_queue.get()
 
     # ── Gate decision API ────────────────────
 
