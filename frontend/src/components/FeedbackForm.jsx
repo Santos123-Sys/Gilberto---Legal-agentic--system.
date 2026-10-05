@@ -8,19 +8,20 @@ const FEEDBACK_TEMPLATES = [
   "Are there any LGPD compliance issues that were not addressed?",
 ]
 
-export function FeedbackForm({ onSubmitFeedback, onAccept, loading, rounds }) {
+export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, rounds = [] }) {
+  const safeRounds = Array.isArray(rounds) ? rounds : []
   const [feedback, setFeedback] = useState('')
   const [submitted, setSubmitted] = useState(false)
 
   const handleSubmit = () => {
     if (!feedback.trim() || loading) return
     setSubmitted(true)
-    onSubmitFeedback(feedback.trim())
+    onSubmitFeedback?.(feedback.trim())
     setFeedback('')
     setTimeout(() => setSubmitted(false), 2000)
   }
 
-  const latestRound = rounds[rounds.length - 1]
+  const latestRound = safeRounds[safeRounds.length - 1]
   const latestSummary = latestRound?.summary?.parsed
 
   return (
@@ -31,7 +32,7 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading, rounds }) {
         <div>
           <h3 className="font-display text-lg text-gold-400">Debate Complete</h3>
           <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-            {rounds.length} round{rounds.length !== 1 ? 's' : ''} of analysis finished.
+            {safeRounds.length} round{safeRounds.length !== 1 ? 's' : ''} of analysis finished.
             Review the findings below. You may submit feedback to trigger an additional debate round
             with a Feedback Advocate agent, or accept the current analysis as final.
           </p>
