@@ -17,6 +17,8 @@ const EVENT_LABEL = {
 }
 
 const PHASE_LABEL = { analysis: 'Analysis Phase', voting: 'Peer Review & Voting', aggregation: 'Synthesis & Aggregation' }
+const EMPTY_OBJECT = Object.freeze({})
+const EMPTY_ARRAY = Object.freeze([])
 
 function RiskBadge({ level }) {
   if (!level) return null
@@ -97,15 +99,20 @@ function RoundSummaryCard({ summary, roundNum }) {
 }
 
 export function DebatePanel({ agents, events, rounds, currentRound, currentPhase, numRounds }) {
+  // This legacy panel is also rendered while recovering from partial/failed runs.
+  // The agent state is not part of the session API, so it may be absent entirely.
+  const safeAgents = agents && typeof agents === 'object' && !Array.isArray(agents) ? agents : EMPTY_OBJECT
+  const safeEvents = Array.isArray(events) ? events : EMPTY_ARRAY
+  const safeRounds = Array.isArray(rounds) ? rounds : EMPTY_ARRAY
   const feedRef = useRef(null)
 
   useEffect(() => {
     if (feedRef.current) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight
     }
-  }, [events])
+  }, [safeEvents])
 
-  const recentEvents = events.slice(-30)
+  const recentEvents = safeEvents.slice(-30)
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -132,10 +139,10 @@ export function DebatePanel({ agents, events, rounds, currentRound, currentPhase
 
         {/* Agent cards */}
         <div className="space-y-2">
-          {Object.entries(agents).map(([role, data]) => (
+          {Object.entries(safeAgents).map(([role, data]) => (
             <AgentCard key={role} role={role} agentData={data} />
           ))}
-          {Object.keys(agents).length === 0 && (
+          {Object.keys(safeAgents).length === 0 && (
             <div className="card p-6 text-center text-slate-500 text-sm">
               <Activity size={24} className="mx-auto mb-2 opacity-30" />
               Agents will appear here as they activate
@@ -151,8 +158,8 @@ export function DebatePanel({ agents, events, rounds, currentRound, currentPhase
           <div className="flex items-center gap-2 mb-3">
             <Activity size={14} className="text-gold-400" />
             <span className="text-xs font-medium text-gold-400 uppercase tracking-widest">Live Activity</span>
-            {events.length > 0 && (
-              <span className="ml-auto text-xs text-slate-600 font-mono">{events.length} events</span>
+            {safeEvents.length > 0 && (
+              <span className="ml-auto text-xs text-slate-600 font-mono">{safeEvents.length} events</span>
             )}
           </div>
           <div ref={feedRef} className="h-48 overflow-y-auto space-y-1 scrollbar-thin">
@@ -172,7 +179,7 @@ export function DebatePanel({ agents, events, rounds, currentRound, currentPhase
                 </div>
               )
             })}
-            {events.length === 0 && (
+            {safeEvents.length === 0 && (
               <p className="text-xs text-slate-600 text-center py-6">Waiting for events…</p>
             )}
           </div>
@@ -180,7 +187,7 @@ export function DebatePanel({ agents, events, rounds, currentRound, currentPhase
 
         {/* Round summaries */}
         <div className="space-y-4 overflow-y-auto max-h-[600px]">
-          {rounds.map((round, i) => (
+          {safeRounds.map((round, i) => (
             <RoundSummaryCard
               key={i}
               summary={round?.summary?.parsed}
