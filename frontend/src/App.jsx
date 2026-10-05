@@ -56,7 +56,7 @@ export default function App() {
   const isError = session.status === 'error'
 
   const showDebatePanel = !isIdle && !isPreview && !isRunning
-  const showFeedback = isAwaiting || isCompleted
+  const showFeedback = isAwaiting
   const showSynthesis = (isAwaiting || isCompleted || isAwaitingGate) && session.finalSynthesis
 
   return (
@@ -245,18 +245,11 @@ export default function App() {
         {showFeedback && (
           <div className="mt-8">
             <FeedbackForm
-              onSubmit={session.submitFeedback}
-              disabled={isRunning}
+              onSubmitFeedback={session.submitFeedback}
+              onAccept={session.acceptResult}
+              loading={isRunning}
+              rounds={session.rounds}
             />
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={session.acceptResult}
-                className="btn-primary flex items-center gap-2"
-              >
-                <CheckCircle size={16} />
-                Accept Analysis
-              </button>
-            </div>
           </div>
         )}
 
