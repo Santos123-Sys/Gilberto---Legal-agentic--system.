@@ -7,12 +7,13 @@ import { AgentClusterPanel } from './components/AgentClusterPanel'
 import { GateReviewPanel } from './components/GateReviewPanel'
 import { SynthesisDashboard } from './components/SynthesisDashboard'
 import { AuditTrail } from './components/AuditTrail'
+import { AgenticProgress } from './components/AgenticProgress'
 import { useAgenticSession } from './hooks/useAgenticSession'
 
 // ─────────────────────────────────────────────
 //  STATUS BAR
 // ─────────────────────────────────────────────
-function StatusBar({ status, sessionId, currentRound, numRounds, docName, pendingGates }) {
+function StatusBar({ status, sessionId, currentRound, numRounds, docName, pendingGates, connectionState }) {
   const STATUS_CFG = {
     idle:               { label: 'Ready', color: 'text-slate-500', icon: null },
     creating:           { label: 'Creating session…', color: 'text-gold-400', icon: <Loader size={12} className="animate-spin" /> },
@@ -31,7 +32,7 @@ function StatusBar({ status, sessionId, currentRound, numRounds, docName, pendin
       {sessionId && (
         <span className="text-slate-600 font-mono">{sessionId.slice(0, 8)}…</span>
       )}
-      {docName && <span className="text-slate-500 font-mono">{docName}</span>}
+      {docName && <span className="text-slate-500 truncate max-w-40" title={docName}>{docName}</span>}
       <div className={`flex items-center gap-1.5 ${cfg.color} ml-auto`}>
         {cfg.icon}
         <span>{cfg.label}</span>
@@ -84,12 +85,13 @@ export default function App() {
               sessionId={session.sessionId}
               currentRound={session.rounds.length + 1}
               numRounds={session.config?.num_rounds}
-              docName={null}
+              docName={session.documentName}
               pendingGates={session.pendingGates.length}
+              connectionState={session.connectionState}
             />
           </div>
 
-          {!isIdle && (
+          {!isIdle && !isRunning && (
             <button
               onClick={session.reset}
               className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-300 transition-colors px-3 py-2 rounded-lg hover:bg-slate-800/50"
@@ -148,16 +150,31 @@ export default function App() {
         {/* ── STAGE 3: Running — Live Cluster Panel ── */}
         {isRunning && (
           <div className="space-y-6">
-            <div className="text-center py-8">
-              <Loader size={32} className="animate-spin text-gold-400 mx-auto mb-4" />
-              <h2 className="font-display text-xl text-slate-100">Analysis in Progress</h2>
-              <p className="text-sm text-slate-400 mt-1">
-                {session.executionMetrics.total_latency_ms
-                  ? `Completed in ${(session.executionMetrics.total_latency_ms / 1000).toFixed(1)}s`
-                  : 'Running parallel cluster analysis…'}
-              </p>
-            </div>
-            <AgentClusterPanel events={session.events} />
+            <AgenticProgress
+              events={session.events}
+              rounds={session.rounds}
+              totalRounds={session.config?.num_rounds}
+              connectionState={session.connectionState}
+              lastEventAt={session.lastEventAt}
+              onReconnect={session.reconnect}
+            />
+            <details className="card p-4">
+              <summary className="cursor-pointer text-sm text-slate-300">Show specialist status and scores</summary>
+              <div className="mt-4"><AgentClusterPanel events={session.events} /></div>
+            </details>
+          </div>
+        )}
+
+        {isError && session.events.length > 0 && (
+          <div className="mb-6">
+            <AgenticProgress
+              events={session.events}
+              rounds={session.rounds}
+              totalRounds={session.config?.num_rounds}
+              connectionState={session.connectionState}
+              lastEventAt={session.lastEventAt}
+              onReconnect={session.reconnect}
+            />
           </div>
         )}
 
@@ -177,7 +194,7 @@ export default function App() {
                 key={gate.gate_number}
                 gate={gate}
                 clusterSummary={gate.affected_cluster ? session.clusterResults[gate.affected_cluster] : null}
-                daFindings={gate.gate_number === 2 ? session.devilAdvocate?.identified_gaps : null}
+                daFindings={gate.gate_number === 2 && Array.isArray(session.devilAdvocate?.identified_gaps) ? session.devilAdvocate.identified_gaps : null}
                 onDecision={(decision) => session.submitGateDecision(
                   gate.gate_number,
                   decision.decision,
@@ -240,6 +257,15 @@ export default function App() {
                 Accept Analysis
               </button>
             </div>
+          </div>
+        )}
+
+        {!isIdle && !isPreview && !isRunning && !isError && !isAwaitingGate && !showSynthesis && !showFeedback && (
+          <div className="card p-6 text-center max-w-2xl mx-auto">
+            <Loader size={24} className="animate-spin text-gold-400 mx-auto mb-3" />
+            <h2 className="font-display text-lg text-slate-100">Preparing the next review step</h2>
+            <p className="text-sm text-slate-400 mt-2">The session is active, but its next result is not available yet. Progress updates will appear here.</p>
+            <button type="button" onClick={session.reconnect} className="btn-secondary mt-4">Reconnect to analysis</button>
           </div>
         )}
 

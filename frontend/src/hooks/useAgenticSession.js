@@ -1,6 +1,30 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const ACTIVE_SESSION_KEY = 'gilberto.activeSession.v1'
+
+function readSavedSession() {
+  try { return JSON.parse(localStorage.getItem(ACTIVE_SESSION_KEY) || 'null') } catch { return null }
+}
+
+function clearSavedSession() {
+  try { localStorage.removeItem(ACTIVE_SESSION_KEY) } catch { /* storage can be disabled */ }
+}
+
+function saveSession(value) {
+  try { localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(value)) } catch { /* storage can be disabled */ }
+}
+
+function messageFromError(err) {
+  if (!navigator.onLine) return 'Sem conexão com a internet. Verifique sua conexão; a análise pode continuar no servidor.'
+  return err?.message || 'Ocorreu um erro inesperado.'
+}
+
+function statusFromServer(status) {
+  if (status === 'created') return 'preview'
+  if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(status)) return status
+  return 'error'
+}
 
 export function useAgenticSession() {
   const [sessionId, setSessionId] = useState(null)
@@ -16,10 +40,16 @@ export function useAgenticSession() {
   const [error, setError] = useState(null)
   const [config, setConfig] = useState(null)
   const [documentFile, setDocumentFile] = useState(null)
+  const [documentName, setDocumentName] = useState(null)
   const [showIntentPreview, setShowIntentPreview] = useState(false)
+  const [connectionState, setConnectionState] = useState('idle')
+  const [lastEventAt, setLastEventAt] = useState(null)
 
   const eventSourceRef = useRef(null)
   const cursorRef = useRef(0)
+  const connectStreamRef = useRef(null)
+  const reconnectTimerRef = useRef(null)
+  const reconnectAttemptsRef = useRef(0)
 
   // Cleanup on unmount
   useEffect(() => {
@@ -27,6 +57,7 @@ export function useAgenticSession() {
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
       }
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
     }
   }, [])
 
@@ -49,6 +80,7 @@ export function useAgenticSession() {
     setStatus('creating')
     setConfig(apiConfig)
     setDocumentFile(file || null)
+    setDocumentName(file?.name || null)
     setError(null)
 
     try {
@@ -89,6 +121,7 @@ export function useAgenticSession() {
 
     setStatus('uploading')
     setShowIntentPreview(false)
+    setDocumentName(selectedFile.name || documentName)
 
     try {
       const formData = new FormData()
@@ -105,29 +138,43 @@ export function useAgenticSession() {
       }
 
       setStatus('running')
-      connectStream(sessionId)
+      connectStreamRef.current?.(sessionId, 0)
       return true
     } catch (err) {
       setError(`Failed to start: ${err.message}`)
       setStatus('error')
       return false
     }
-  }, [sessionId, documentFile])
+  }, [sessionId, documentFile, documentName])
 
-  const connectStream = useCallback((sid) => {
+  const connectStream = useCallback((sid, cursor = cursorRef.current) => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
     }
 
-    const url = `${API_BASE}/api/sessions/${sid}/stream?cursor=${cursorRef.current}`
+    setConnectionState('connecting')
+    const url = `${API_BASE}/api/sessions/${sid}/stream?cursor=${cursor}`
     const es = new EventSource(url)
     eventSourceRef.current = es
 
+    es.onopen = () => {
+      if (eventSourceRef.current !== es) return
+      reconnectAttemptsRef.current = 0
+      setConnectionState('connected')
+    }
     es.onmessage = (msg) => {
+      if (eventSourceRef.current !== es) return
       try {
         const event = JSON.parse(msg.data)
-        setEvents(prev => [...prev, event])
-        cursorRef.current += 1
+        if (event.type !== 'STREAM_END') {
+          setEvents(prev => [...prev, event])
+          setLastEventAt(event.timestamp || new Date().toISOString())
+          cursorRef.current += 1
+        }
 
         switch (event.type) {
           case 'CLUSTER_COMPLETE':
@@ -195,6 +242,8 @@ export function useAgenticSession() {
 
           case 'STREAM_END':
             es.close()
+            if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+            setConnectionState('closed')
             break
         }
       } catch (e) {
@@ -203,12 +252,65 @@ export function useAgenticSession() {
     }
 
     es.onerror = () => {
-      // EventSource auto-reconnects, but if session is done, close
-      if (status === 'completed' || status === 'error') {
-        es.close()
+      if (eventSourceRef.current !== es) return
+      // Reopen with the latest cursor: native EventSource retries the original URL and
+      // would replay duplicate events because this API does not emit Last-Event-ID values.
+      es.close()
+      setConnectionState('reconnecting')
+      reconnectAttemptsRef.current += 1
+      const delay = Math.min(10000, 1000 * (2 ** Math.min(reconnectAttemptsRef.current - 1, 4)))
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null
+        connectStreamRef.current?.(sid, cursorRef.current)
+      }, delay)
+    }
+  }, [])
+  connectStreamRef.current = connectStream
+
+  // Keep only the opaque session ID and configuration so a refresh can reconnect.
+  useEffect(() => {
+    if (!sessionId) {
+      return
+    }
+    saveSession({ sessionId, config, documentName })
+  }, [sessionId, config, documentName])
+
+  // Restore an in-flight server session after refresh, then replay its event history.
+  useEffect(() => {
+    let cancelled = false
+    const restore = async () => {
+      const saved = readSavedSession()
+      if (!saved?.sessionId) return
+
+      try {
+        const response = await fetch(`${API_BASE}/api/sessions/${saved.sessionId}/status`)
+        if (!response.ok) throw new Error(`Sessão não disponível (HTTP ${response.status})`)
+        const remote = await response.json()
+        if (cancelled) return
+        const restoredStatus = statusFromServer(remote.status)
+        if (remote.status === 'created') {
+          // The browser cannot restore the document bytes; do not pretend the preview is resumable.
+          clearSavedSession()
+          return
+        }
+        setSessionId(saved.sessionId)
+        setConfig(saved.config || null)
+        setDocumentName(remote.document_name || saved.documentName || null)
+        setStatus(restoredStatus)
+        setShowIntentPreview(false)
+        if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(remote.status)) {
+          connectStream(saved.sessionId, 0)
+        }
+      } catch (err) {
+        if (cancelled) return
+        clearSavedSession()
+        setError(`Não foi possível retomar a análise: ${messageFromError(err)}`)
+        setStatus('error')
       }
     }
-  }, [status])
+    restore()
+    return () => { cancelled = true }
+  }, [connectStream])
 
   const submitGateDecision = useCallback(async (gateNumber, decision, reasoning, overrideScore) => {
     if (!sessionId) return false
@@ -265,8 +367,7 @@ export function useAgenticSession() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
       // Reconnect stream for new events
-      cursorRef.current = events.length
-      connectStream(sessionId)
+      connectStream(sessionId, cursorRef.current)
     } catch (err) {
       setError(`Feedback failed: ${err.message}`)
       setStatus('error')
@@ -289,6 +390,7 @@ export function useAgenticSession() {
       eventSourceRef.current.close()
       eventSourceRef.current = null
     }
+    clearSavedSession()
     setSessionId(null)
     setStatus('idle')
     setEvents([])
@@ -302,8 +404,11 @@ export function useAgenticSession() {
     setError(null)
     setConfig(null)
     setDocumentFile(null)
+    setDocumentName(null)
     setShowIntentPreview(false)
     cursorRef.current = 0
+    setConnectionState('idle')
+    setLastEventAt(null)
   }, [])
 
   return {
@@ -319,7 +424,11 @@ export function useAgenticSession() {
     executionMetrics,
     error,
     config,
+    documentName,
     showIntentPreview,
+    connectionState,
+    lastEventAt,
+    reconnect: () => sessionId && connectStream(sessionId, cursorRef.current),
     createSession,
     confirmAndStart,
     submitGateDecision,

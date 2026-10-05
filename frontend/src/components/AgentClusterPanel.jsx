@@ -19,12 +19,14 @@ function getClusterStatus(clusterId, events) {
 
 function getClusterScore(clusterId, events) {
   const complete = events.find(e => e.type === 'CLUSTER_COMPLETE' && e.cluster === clusterId)
-  return complete?.summary?.aggregated_score ?? null
+  const value = Number(complete?.summary?.aggregated_score)
+  return Number.isFinite(value) ? Math.min(10, Math.max(0, value)) : null
 }
 
 function getClusterConfidence(clusterId, events) {
   const complete = events.find(e => e.type === 'CLUSTER_COMPLETE' && e.cluster === clusterId)
-  return complete?.summary?.confidence_aggregate ?? null
+  const value = Number(complete?.summary?.confidence_aggregate)
+  return Number.isFinite(value) ? Math.min(5, Math.max(0, value)) : null
 }
 
 function getAgentStatuses(clusterId, events) {
@@ -161,7 +163,9 @@ function AgentRow({ agent }) {
 function ScoreRing({ score, color, size = 48 }) {
   const radius = (size - 4) / 2
   const circumference = 2 * Math.PI * radius
-  const fill = (score / 10) * circumference
+  const numericScore = Number(score)
+  const safeScore = Number.isFinite(numericScore) ? Math.min(10, Math.max(0, numericScore)) : 0
+  const fill = (safeScore / 10) * circumference
 
   return (
     <div className="relative" style={{ width: size, height: size }}>
@@ -182,17 +186,20 @@ function ScoreRing({ score, color, size = 48 }) {
         className="absolute inset-0 flex items-center justify-center text-xs font-bold"
         style={{ color }}
       >
-        {score.toFixed(1)}
+        {safeScore.toFixed(1)}
       </span>
     </div>
   )
 }
 
 function DevilsAdvocateCard({ status, result }) {
-  const gapScore = result?.gap_severity_score ?? null
-  const sadScore = result?.sad_score ?? null
-  const unaskedQuestions = result?.unasked_questions ?? []
-  const biases = result?.cognitive_biases_detected ?? []
+  const gapValue = result?.gap_severity_score
+  const sadValue = result?.sad_score
+  const gapScore = gapValue == null || !Number.isFinite(Number(gapValue)) ? null : Math.min(10, Math.max(0, Number(gapValue)))
+  const sadScore = sadValue == null || !Number.isFinite(Number(sadValue)) ? null : Math.min(5, Math.max(0, Number(sadValue)))
+  const unaskedQuestions = Array.isArray(result?.unasked_questions) ? result.unasked_questions : []
+  const biases = Array.isArray(result?.cognitive_biases_detected) ? result.cognitive_biases_detected : []
+  const identifiedGaps = Array.isArray(result?.identified_gaps) ? result.identified_gaps : []
 
   return (
     <div className={`card p-4 border-2 ${
@@ -244,9 +251,9 @@ function DevilsAdvocateCard({ status, result }) {
         </div>
       )}
 
-      {result?.identified_gaps?.length > 0 && (
+      {identifiedGaps.length > 0 && (
         <div className="space-y-1">
-          {result.identified_gaps.slice(0, 3).map((gap, i) => (
+          {identifiedGaps.filter(gap => gap && typeof gap === 'object').slice(0, 3).map((gap, i) => (
             <div key={i} className="flex items-start gap-1.5 text-xs">
               <AlertTriangle size={10} className="text-yellow-400 mt-0.5 flex-shrink-0" />
               <div>
@@ -257,8 +264,8 @@ function DevilsAdvocateCard({ status, result }) {
               </div>
             </div>
           ))}
-          {result.identified_gaps.length > 3 && (
-            <p className="text-[10px] text-slate-500">+{result.identified_gaps.length - 3} lacunas adicionais</p>
+          {identifiedGaps.length > 3 && (
+            <p className="text-[10px] text-slate-500">+{identifiedGaps.length - 3} lacunas adicionais</p>
           )}
         </div>
       )}

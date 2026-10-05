@@ -8,15 +8,19 @@ export function ConfidenceSignal({ score, confidence, classification, size = 'md
   }
 
   const cfg = sizeConfig[size]
+  const scoreNumber = Number(score)
+  const safeScore = Number.isFinite(scoreNumber) ? Math.min(10, Math.max(0, scoreNumber)) : 0
+  const confidenceNumber = Number(confidence)
+  const safeConfidence = Number.isFinite(confidenceNumber) ? Math.min(5, Math.max(0, confidenceNumber)) : 0
 
-  const confidenceColor = confidence >= 4 ? '#10b981' : confidence >= 3 ? '#f59e0b' : '#ef4444'
+  const confidenceColor = safeConfidence >= 4 ? '#10b981' : safeConfidence >= 3 ? '#f59e0b' : '#ef4444'
   const classificationColor =
     classification === 'Crítico' ? '#ef4444' :
     classification === 'Relevante' ? '#f59e0b' : '#10b981'
 
   const radius = (cfg.ring - 6) / 2
   const circumference = 2 * Math.PI * radius
-  const fill = (score / 10) * circumference
+  const fill = (safeScore / 10) * circumference
 
   return (
     <div className="flex items-center gap-4">
@@ -39,7 +43,7 @@ export function ConfidenceSignal({ score, confidence, classification, size = 'md
           className={`absolute inset-0 flex items-center justify-center font-bold ${cfg.font}`}
           style={{ color: classificationColor }}
         >
-          {score.toFixed(1)}
+          {safeScore.toFixed(1)}
         </span>
       </div>
 
@@ -49,13 +53,13 @@ export function ConfidenceSignal({ score, confidence, classification, size = 'md
           <div className="flex justify-between items-center gap-4 mb-1">
             <span className="text-xs text-slate-500">Confidence</span>
             <span className="text-xs font-medium" style={{ color: confidenceColor }}>
-              {confidence}/5 {confidence >= 4 ? 'High' : confidence >= 3 ? 'Medium' : 'Low'}
+              {safeConfidence}/5 {safeConfidence >= 4 ? 'High' : safeConfidence >= 3 ? 'Medium' : 'Low'}
             </span>
           </div>
           <div className={`w-32 bg-slate-700 rounded-full ${cfg.barHeight}`}>
             <div
               className={`${cfg.barHeight} rounded-full transition-all duration-1000`}
-              style={{ width: `${(confidence / 5) * 100}%`, backgroundColor: confidenceColor }}
+              style={{ width: `${(safeConfidence / 5) * 100}%`, backgroundColor: confidenceColor }}
             />
           </div>
         </div>
@@ -68,7 +72,7 @@ export function ConfidenceSignal({ score, confidence, classification, size = 'md
           {classification}
         </div>
 
-        {confidence < 3 && (
+        {safeConfidence < 3 && (
           <p className="text-[10px] text-yellow-400 flex items-center gap-1">
             <span>⚠</span> Low confidence — human review recommended
           </p>

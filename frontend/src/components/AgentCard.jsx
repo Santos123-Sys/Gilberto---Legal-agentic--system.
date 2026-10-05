@@ -56,16 +56,21 @@ const STATUS_CONFIG = {
 }
 
 function safeParseFindings(parsed) {
-  if (!parsed) return []
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
   if (parsed.raw_content) return []
-  const findings = parsed.key_findings || []
-  return findings.slice(0, 3)
+  const findings = Array.isArray(parsed.key_findings) ? parsed.key_findings : []
+  return findings.filter(f => f && typeof f === 'object').slice(0, 3).map(f => ({
+    ...f,
+    severity: typeof f.severity === 'string' ? f.severity : 'medium',
+    finding: typeof f.finding === 'string' ? f.finding : f.finding == null ? 'Finding details are unavailable.' : JSON.stringify(f.finding),
+  }))
 }
 
 export function AgentCard({ role, agentData }) {
   const statusKey = agentData?.status || 'idle'
   const config = STATUS_CONFIG[statusKey] || STATUS_CONFIG.idle
-  const icon = ROLE_ICONS[role] || ROLE_ICONS[Object.keys(ROLE_ICONS).find(k => role.includes(k.split(' ')[0]))] || '🤖'
+  const safeRole = typeof role === 'string' ? role : 'Legal specialist'
+  const icon = ROLE_ICONS[safeRole] || ROLE_ICONS[Object.keys(ROLE_ICONS).find(k => safeRole.includes(k.split(' ')[0]))] || '🤖'
   const findings = safeParseFindings(agentData?.parsed)
 
   return (
@@ -75,7 +80,7 @@ export function AgentCard({ role, agentData }) {
         <div className="flex items-center gap-3">
           <span className="text-2xl leading-none">{icon}</span>
           <div>
-            <p className="text-sm font-medium text-slate-100 leading-tight">{role}</p>
+            <p className="text-sm font-medium text-slate-100 leading-tight">{safeRole}</p>
             <div className={`flex items-center gap-1.5 mt-1 text-xs ${config.color}`}>
               <div className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
               <span>{config.label}</span>
