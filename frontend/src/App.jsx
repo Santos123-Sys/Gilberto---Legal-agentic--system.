@@ -2,18 +2,25 @@ import { Scale, RotateCcw, CheckCircle, AlertCircle, Loader } from 'lucide-react
 import { SessionConfig } from './components/SessionConfig'
 import { DebatePanel } from './components/DebatePanel'
 import { FeedbackForm } from './components/FeedbackForm'
-import { useDebateSession } from './hooks/useDebateSession'
+import { IntentPreview } from './components/IntentPreview'
+import { AgentClusterPanel } from './components/AgentClusterPanel'
+import { GateReviewPanel } from './components/GateReviewPanel'
+import { SynthesisDashboard } from './components/SynthesisDashboard'
+import { AuditTrail } from './components/AuditTrail'
+import { useAgenticSession } from './hooks/useAgenticSession'
 
 // ─────────────────────────────────────────────
 //  STATUS BAR
 // ─────────────────────────────────────────────
-function StatusBar({ status, sessionId, currentRound, numRounds, docName }) {
+function StatusBar({ status, sessionId, currentRound, numRounds, docName, pendingGates }) {
   const STATUS_CFG = {
     idle:               { label: 'Ready', color: 'text-slate-500', icon: null },
     creating:           { label: 'Creating session…', color: 'text-gold-400', icon: <Loader size={12} className="animate-spin" /> },
+    preview:            { label: 'Review plan…', color: 'text-blue-400', icon: null },
     uploading:          { label: 'Uploading document…', color: 'text-gold-400', icon: <Loader size={12} className="animate-spin" /> },
     running:            { label: `Round ${currentRound} of ${numRounds || '?'} — In progress`, color: 'text-blue-400', icon: <Loader size={12} className="animate-spin" /> },
-    awaiting_feedback:  { label: 'Debate complete — Awaiting your feedback', color: 'text-gold-400', icon: null },
+    awaiting_gate:      { label: `Gate review needed (${pendingGates} pending)`, color: 'text-yellow-400', icon: <AlertCircle size={12} /> },
+    awaiting_feedback:  { label: 'Analysis complete — Awaiting your feedback', color: 'text-gold-400', icon: null },
     completed:          { label: 'Analysis accepted & complete', color: 'text-green-400', icon: <CheckCircle size={12} /> },
     error:              { label: 'Error occurred', color: 'text-red-400', icon: <AlertCircle size={12} /> },
   }
@@ -22,13 +29,9 @@ function StatusBar({ status, sessionId, currentRound, numRounds, docName }) {
   return (
     <div className="flex items-center gap-4 text-xs">
       {sessionId && (
-        <span className="text-slate-600 font-mono">
-          {sessionId.slice(0, 8)}…
-        </span>
+        <span className="text-slate-600 font-mono">{sessionId.slice(0, 8)}…</span>
       )}
-      {docName && (
-        <span className="text-slate-500 font-mono">{docName}</span>
-      )}
+      {docName && <span className="text-slate-500 font-mono">{docName}</span>}
       <div className={`flex items-center gap-1.5 ${cfg.color} ml-auto`}>
         {cfg.icon}
         <span>{cfg.label}</span>
@@ -41,17 +44,19 @@ function StatusBar({ status, sessionId, currentRound, numRounds, docName }) {
 //  APP
 // ─────────────────────────────────────────────
 export default function App() {
-  const session = useDebateSession()
+  const session = useAgenticSession()
 
   const isIdle = session.status === 'idle'
-  const isConfiguring = isIdle
+  const isPreview = session.status === 'preview'
   const isRunning = ['creating', 'uploading', 'running'].includes(session.status)
+  const isAwaitingGate = session.status === 'awaiting_gate'
   const isAwaiting = session.status === 'awaiting_feedback'
   const isCompleted = session.status === 'completed'
   const isError = session.status === 'error'
 
-  const showDebatePanel = !isIdle && !isConfiguring
+  const showDebatePanel = !isIdle && !isPreview && !isRunning
   const showFeedback = isAwaiting || isCompleted
+  const showSynthesis = (isAwaiting || isCompleted || isAwaitingGate) && session.finalSynthesis
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] relative">
@@ -69,7 +74,7 @@ export default function App() {
             </div>
             <div>
               <span className="font-display text-lg font-semibold text-gold-gradient">Gilberto</span>
-              <span className="text-slate-500 text-xs ml-2 hidden sm:inline">AI Legal Agent</span>
+              <span className="text-slate-500 text-xs ml-2 hidden sm:inline">AI Legal Agent v3</span>
             </div>
           </div>
 
@@ -77,9 +82,10 @@ export default function App() {
             <StatusBar
               status={session.status}
               sessionId={session.sessionId}
-              currentRound={session.currentRound}
-              numRounds={session.config?.numRounds}
+              currentRound={session.rounds.length + 1}
+              numRounds={session.config?.num_rounds}
               docName={null}
+              pendingGates={session.pendingGates.length}
             />
           </div>
 
@@ -117,52 +123,136 @@ export default function App() {
               <h3 className="font-display text-lg text-green-400">Analysis Accepted</h3>
               <p className="text-sm text-slate-400 mt-1">
                 Your legal document analysis is complete. {session.rounds.length} round{session.rounds.length !== 1 ? 's' : ''} of agent debate were conducted.
-                Use the round summaries below for your legal review.
               </p>
             </div>
           </div>
         )}
 
         {/* ── STAGE 1: Configure ── */}
-        {isConfiguring && (
+        {isIdle && (
           <SessionConfig
-            onStart={session.createAndStart}
+            onStart={session.createSession}
             loading={isRunning}
           />
         )}
 
-        {/* ── STAGE 2 + 3: Debate panel ── */}
-        {showDebatePanel && (
-          <div className="space-y-8">
-            <DebatePanel
-              agents={session.agents}
-              events={session.events}
-              rounds={session.rounds}
-              currentRound={session.currentRound}
-              currentPhase={session.currentPhase}
-              numRounds={session.config?.numRounds || 1}
-            />
+        {/* ── STAGE 2: Intent Preview ── */}
+        {isPreview && session.config && (
+          <IntentPreview
+            config={session.config}
+            onConfirm={(file) => session.confirmAndStart(file)}
+            onEdit={session.reset}
+          />
+        )}
 
-            {/* ── STAGE 3: Feedback (when awaiting or completed) ── */}
-            {showFeedback && (
-              <FeedbackForm
-                onSubmitFeedback={session.submitFeedback}
-                onAccept={session.acceptResult}
-                loading={isRunning}
-                rounds={session.rounds}
-              />
-            )}
+        {/* ── STAGE 3: Running — Live Cluster Panel ── */}
+        {isRunning && (
+          <div className="space-y-6">
+            <div className="text-center py-8">
+              <Loader size={32} className="animate-spin text-gold-400 mx-auto mb-4" />
+              <h2 className="font-display text-xl text-slate-100">Analysis in Progress</h2>
+              <p className="text-sm text-slate-400 mt-1">
+                {session.executionMetrics.total_latency_ms
+                  ? `Completed in ${(session.executionMetrics.total_latency_ms / 1000).toFixed(1)}s`
+                  : 'Running parallel cluster analysis…'}
+              </p>
+            </div>
+            <AgentClusterPanel events={session.events} />
           </div>
         )}
-      </main>
 
-      {/* ── Footer ── */}
-      <footer className="border-t border-[var(--border)] mt-20 py-6">
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between text-xs text-slate-600">
-          <span>Gilberto Legal Agent · Powered by Maritaca AI Sabiá-4</span>
-          <span>Built with CrewAI + FastAPI + React</span>
-        </div>
-      </footer>
+        {/* ── STAGE 4: Gate Review ── */}
+        {isAwaitingGate && session.pendingGates.length > 0 && (
+          <div className="space-y-6">
+            <div className="text-center py-4">
+              <AlertCircle size={32} className="text-yellow-400 mx-auto mb-4" />
+              <h2 className="font-display text-xl text-slate-100">Human Review Required</h2>
+              <p className="text-sm text-slate-400 mt-1">
+                {session.pendingGates.length} gate{session.pendingGates.length !== 1 ? 's' : ''} triggered
+              </p>
+            </div>
+
+            {session.pendingGates.map(gate => (
+              <GateReviewPanel
+                key={gate.gate_number}
+                gate={gate}
+                clusterSummary={gate.affected_cluster ? session.clusterResults[gate.affected_cluster] : null}
+                daFindings={gate.gate_number === 2 ? session.devilAdvocate?.identified_gaps : null}
+                onDecision={(decision) => session.submitGateDecision(
+                  gate.gate_number,
+                  decision.decision,
+                  decision.reasoning,
+                  decision.override_score
+                )}
+                onClose={() => {}}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── STAGE 5: Synthesis Dashboard ── */}
+        {showSynthesis && (
+          <div className="space-y-6">
+            <SynthesisDashboard
+              synthesis={session.finalSynthesis}
+              clusterResults={session.clusterResults}
+              gates={session.gateRecords}
+              onExport={() => {
+                const data = {
+                  synthesis: session.finalSynthesis,
+                  clusters: session.clusterResults,
+                  gates: session.gateRecords,
+                  metrics: session.executionMetrics,
+                }
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `gilberto-analysis-${session.sessionId}.json`
+                a.click()
+              }}
+            />
+
+            {/* Live cluster panel for completed analysis */}
+            <AgentClusterPanel events={session.events} />
+
+            {/* Audit trail */}
+            <AuditTrail
+              events={session.events}
+              gates={session.gateRecords}
+            />
+          </div>
+        )}
+
+        {/* ── STAGE 6: Feedback ── */}
+        {showFeedback && (
+          <div className="mt-8">
+            <FeedbackForm
+              onSubmit={session.submitFeedback}
+              disabled={isRunning}
+            />
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={session.acceptResult}
+                className="btn-primary flex items-center gap-2"
+              >
+                <CheckCircle size={16} />
+                Accept Analysis
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Legacy debate panel (kept for compatibility) */}
+        {showDebatePanel && !showSynthesis && (
+          <DebatePanel
+            events={session.events}
+            rounds={session.rounds}
+            currentRound={session.rounds.length + 1}
+            totalRounds={session.config?.num_rounds}
+          />
+        )}
+      </main>
     </div>
   )
 }

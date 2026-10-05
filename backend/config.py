@@ -1,26 +1,71 @@
+"""
+config.py — Application Settings
+═══════════════════════════════════════════════════════════════════════
+Centralized configuration with environment variable support.
+"""
+
+import os
+from typing import List, Optional
 from pydantic_settings import BaseSettings
-from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    MARITACA_API_KEY: str = ""
-    MARITACA_BASE_URL: str = "https://chat.maritaca.ai/api"
-    MARITACA_MODEL: str = "sabia-4"
-    MAX_AGENTS: int = 5
-    MAX_ROUNDS: int = 5
-    MAX_TOKENS: int = 4096
-    TEMPERATURE: float = 0.7
-    CORS_ORIGINS: str = "*"
-    PORT: int = 8000
+    """Application settings loaded from environment variables."""
+
+    # ── LLM Provider ─────────────────────────
+    MARITACA_API_KEY: str = os.getenv("MARITACA_API_KEY", "")
+    MARITACA_BASE_URL: str = os.getenv(
+        "MARITACA_BASE_URL", "https://chat.maritaca.ai/api"
+    )
+    MARITACA_MODEL: str = os.getenv("MARITACA_MODEL", "sabia-4")
+    TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.1"))
+    MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "4096"))
+
+    # ── Server ───────────────────────────────
+    HOST: str = os.getenv("HOST", "0.0.0.0")
+    PORT: int = int(os.getenv("PORT", "8000"))
+    CORS_ORIGINS: str = os.getenv(
+        "CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"
+    )
+
+    # ── Debate Engine ────────────────────────
+    MAX_ROUNDS: int = int(os.getenv("MAX_ROUNDS", "3"))
+    DEFAULT_AGENTS: int = int(os.getenv("DEFAULT_AGENTS", "20"))
+    DEFAULT_ROUNDS: int = int(os.getenv("DEFAULT_ROUNDS", "1"))
+
+    # ── Human Feedback Gates ─────────────────
+    GATE_1_CONFIDENCE_THRESHOLD: float = float(
+        os.getenv("GATE_1_CONFIDENCE_THRESHOLD", "3.0")
+    )
+    GATE_2_DEVIL_ADVOCATE_THRESHOLD: float = float(
+        os.getenv("GATE_2_DEVIL_ADVOCATE_THRESHOLD", "6.0")
+    )
+    GATE_3_ALWAYS_FOR_CRITICO: bool = os.getenv(
+        "GATE_3_ALWAYS_FOR_CRITICO", "true"
+    ).lower() == "true"
+
+    # ── Cluster Configuration ────────────────
+    ACTIVE_CLUSTERS: str = os.getenv(
+        "ACTIVE_CLUSTERS",
+        "foundation,financial_risk,mitigation_exit,compliance,strategy",
+    )
+    EXECUTION_MODE: str = os.getenv("EXECUTION_MODE", "parallel")
+
+    # ── Observability ────────────────────────
+    AGENTOPS_API_KEY: Optional[str] = os.getenv("AGENTOPS_API_KEY", None)
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+    @property
+    def active_clusters_list(self) -> List[str]:
+        return [c.strip() for c in self.ACTIVE_CLUSTERS.split(",") if c.strip()]
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     class Config:
         env_file = ".env"
-        env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
-@lru_cache()
-def get_settings() -> Settings:
-    return Settings()
-
-
-settings = get_settings()
+settings = Settings()
