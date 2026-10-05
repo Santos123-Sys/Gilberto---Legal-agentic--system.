@@ -25,6 +25,7 @@ import asyncio
 import json
 import re
 import time
+from collections import deque
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
@@ -308,6 +309,14 @@ class DebateEngineV3:
         self._event_queue: asyncio.Queue = asyncio.Queue()
         self._running = False
 
+        # One shared gate smooths all cluster, adversarial, and synthesis calls.
+        self._llm_call_semaphore = asyncio.Semaphore(
+            max(1, settings.LLM_MAX_CONCURRENT_CALLS)
+        )
+        self._llm_start_lock = asyncio.Lock()
+        self._llm_next_start_at = 0.0
+        self._llm_input_reservations = deque()
+
     # ── Event helpers ────────────────────────
 
     @staticmethod
@@ -321,8 +330,47 @@ class DebateEngineV3:
     # ── Single agent execution ───────────────
 
     async def _run_agent(self, agent_cfg: Dict, prompt: str) -> str:
-        """Run one agent in a thread."""
-        return await asyncio.to_thread(_run_crew, agent_cfg, prompt, self.llm)
+        """Run one agent through a bounded, paced provider-call queue."""
+        async with self._llm_call_semaphore:
+            # Approximate input tokens conservatively from prompt size.
+            estimated_input_tokens = max(1, (len(prompt) + 2) // 3)
+            async with self._llm_start_lock:
+                while True:
+                    now = time.monotonic()
+                    while (
+                        self._llm_input_reservations
+                        and self._llm_input_reservations[0][0] <= now - 60
+                    ):
+                        self._llm_input_reservations.popleft()
+
+                    used_tokens = sum(
+                        tokens for _, tokens in self._llm_input_reservations
+                    )
+                    budget = max(1, settings.LLM_INPUT_TOKENS_PER_MINUTE)
+                    pacing_wait = max(0.0, self._llm_next_start_at - now)
+                    token_wait = 0.0
+                    if (
+                        self._llm_input_reservations
+                        and used_tokens + estimated_input_tokens > budget
+                    ):
+                        token_wait = max(
+                            0.0,
+                            self._llm_input_reservations[0][0] + 60 - now,
+                        )
+
+                    wait_seconds = max(pacing_wait, token_wait)
+                    if wait_seconds <= 0:
+                        break
+                    await asyncio.sleep(wait_seconds)
+
+                started_at = time.monotonic()
+                self._llm_input_reservations.append(
+                    (started_at, estimated_input_tokens)
+                )
+                interval = max(0.0, settings.LLM_MIN_REQUEST_INTERVAL_SECONDS)
+                self._llm_next_start_at = started_at + interval
+
+            return await asyncio.to_thread(_run_crew, agent_cfg, prompt, self.llm)
 
     # ── Cluster execution (single cluster) ───
 
