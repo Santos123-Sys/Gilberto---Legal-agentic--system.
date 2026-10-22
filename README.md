@@ -1,3 +1,7 @@
+# Current workflow reliability review
+
+See [the architecture and UX review](docs/architecture-and-ux-review.md) for implemented changes, limits, architecture comparisons and verification instructions. The current UI uses the server-configured specialist roster, supports 1–3 initial rounds, and requires each triggered review before acceptance. Sessions are held in server memory.
+
 # Gilberto — AI Legal Agent System (v3)
 
 > *"Technology as a reasoning empowerment tool — not a brain substitute."*
@@ -442,3 +446,4 @@ gilberto-legal-agent/
 Gilberto is a personal project, built without commercial intent, for lawyers who believe that the future of legal practice is not AI replacing judgment — it is lawyers using AI to make their judgment sharper, faster, and harder to beat.
 
 If you are using this tool passively, you are using it wrong.
+

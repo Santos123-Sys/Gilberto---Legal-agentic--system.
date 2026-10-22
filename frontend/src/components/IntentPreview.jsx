@@ -24,7 +24,7 @@ export function IntentPreview({ config, onConfirm, onEdit }) {
         </div>
         <div>
           <h2 className="font-display text-xl text-slate-100">Analysis Plan</h2>
-          <p className="text-sm text-slate-400">Review the execution plan before proceeding</p>
+          <p className="text-sm text-slate-400">Review the scope before your document is sent to the configured AI provider.</p>
         </div>
       </div>
 
@@ -33,11 +33,11 @@ export function IntentPreview({ config, onConfirm, onEdit }) {
         <div className="flex gap-4">
           <div className="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold flex-shrink-0">1</div>
           <div className="flex-1">
-            <h3 className="text-sm font-medium text-slate-200 mb-2">5 clusters will analyze in parallel</h3>
+            <h3 className="text-sm font-medium text-slate-200 mb-2">Configured specialist workstreams</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {CLUSTERS.map(c => (
+              {(config.active_clusters || []).map(c => (
                 <div key={c.id} className="flex items-center gap-2 p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                  <span>{c.icon}</span>
+                  <span>{CLUSTERS.find(item => item.id === c.id)?.icon || '⚖️'}</span>
                   <div>
                     <p className="text-xs font-medium text-slate-300">{c.name}</p>
                     <p className="text-[10px] text-slate-500">{c.agents} agents</p>
@@ -96,6 +96,8 @@ export function IntentPreview({ config, onConfirm, onEdit }) {
         </div>
       </div>
 
+      <p className="text-sm text-slate-300 mt-4">{config.num_agents} specialists · requests are staggered · {config.model_call_budget} model tasks maximum per session · up to {config.max_feedback_rounds} feedback revisions. Results are AI-generated drafts for legal review. Sessions are kept in server memory and are lost on restart.</p>
+
       {/* Actions */}
       <div className="flex gap-3 mt-6">
         <button
@@ -114,3 +116,4 @@ export function IntentPreview({ config, onConfirm, onEdit }) {
     </div>
   )
 }
+

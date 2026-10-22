@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Shield, AlertTriangle, Award, CheckCircle, Edit, RefreshCw, X } from 'lucide-react'
+import { Shield, AlertTriangle, Award, CheckCircle, Edit, RefreshCw } from 'lucide-react'
 
 const GATE_CONFIG = {
   1: { name: 'Low Confidence Review', icon: Shield, color: 'yellow', description: 'One or more clusters have low confidence in their analysis' },
@@ -7,7 +7,7 @@ const GATE_CONFIG = {
   3: { name: 'Crítico Verification', icon: Award, color: 'purple', description: 'Final classification is Crítico — requires senior review' },
 }
 
-export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision, onClose }) {
+export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }) {
   const [decision, setDecision] = useState(null)
   const [reasoning, setReasoning] = useState('')
   const [overrideScore, setOverrideScore] = useState(5.0)
@@ -16,15 +16,16 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision, 
   const config = GATE_CONFIG[gate.gate_number] || GATE_CONFIG[1]
 
   const handleSubmit = async () => {
-    if (!decision || !reasoning.trim()) return
+    if (!decision || !reasoning.trim() || submitting) return
     setSubmitting(true)
-    await onDecision({
-      gate_number: gate.gate_number,
+    try {
+      await onDecision({
+        gate_number: gate.gate_number,
       decision,
       reasoning,
       override_score: decision === 'override' ? overrideScore : undefined,
     })
-    setSubmitting(false)
+    } finally { setSubmitting(false) }
   }
 
   return (
@@ -40,9 +41,7 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision, 
             <p className="text-sm text-slate-400">{config.description}</p>
           </div>
         </div>
-        <button onClick={onClose} className="text-slate-500 hover:text-slate-300">
-          <X size={18} />
-        </button>
+
       </div>
 
       {/* Trigger details */}
@@ -55,11 +54,11 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision, 
           </div>
           <div>
             <span className="text-slate-500">Value:</span>
-            <span className="text-slate-300 ml-1">{gate.trigger?.trigger_value || gate.trigger_value}</span>
+            <span className="text-slate-300 ml-1">{gate.trigger?.trigger_value ?? gate.trigger_value}</span>
           </div>
           <div>
             <span className="text-slate-500">Threshold:</span>
-            <span className="text-slate-300 ml-1">{gate.trigger?.threshold || gate.threshold}</span>
+            <span className="text-slate-300 ml-1">{gate.trigger?.threshold ?? gate.threshold}</span>
           </div>
           {gate.affected_cluster && (
             <div>
@@ -86,7 +85,7 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision, 
               {clusterSummary.classification}
             </span>
           </div>
-          <p className="text-sm text-slate-400 mt-2 line-clamp-3">{clusterSummary.summary}</p>
+          <p className="text-sm text-slate-300 mt-2 whitespace-pre-wrap break-words">{clusterSummary.summary}</p>
         </div>
       )}
 
@@ -143,7 +142,7 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision, 
             Override Score: <span className="text-yellow-400 font-bold">{overrideScore.toFixed(1)}</span>
           </label>
           <input
-            type="range" min="0" max="10" step="0.1"
+            aria-label="Override risk score" type="range" min="0" max="10" step="0.1"
             value={overrideScore}
             onChange={e => setOverrideScore(parseFloat(e.target.value))}
             className="w-full accent-yellow-500"
@@ -158,10 +157,11 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision, 
 
       {/* Reasoning */}
       <div className="mb-4">
-        <label className="block text-xs font-medium text-slate-400 mb-2">
+        <label htmlFor={`reasoning-${gate.gate_id}`} className="block text-xs font-medium text-slate-400 mb-2">
           EXPERT REASONING <span className="text-red-400">*</span>
         </label>
         <textarea
+          id={`reasoning-${gate.gate_id}`}
           value={reasoning}
           onChange={e => setReasoning(e.target.value)}
           placeholder="Explain your decision in detail. This will be recorded in the audit trail."
@@ -200,3 +200,4 @@ function DecisionButton({ selected, onClick, icon, label, color }) {
     </button>
   )
 }
+

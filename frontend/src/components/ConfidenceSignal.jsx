@@ -51,7 +51,7 @@ export function ConfidenceSignal({ score, confidence, classification, size = 'md
       <div className="space-y-1.5">
         <div>
           <div className="flex justify-between items-center gap-4 mb-1">
-            <span className="text-xs text-slate-500">Confidence</span>
+            <span className="text-xs text-slate-500">Model self-rating</span>
             <span className="text-xs font-medium" style={{ color: confidenceColor }}>
               {safeConfidence}/5 {safeConfidence >= 4 ? 'High' : safeConfidence >= 3 ? 'Medium' : 'Low'}
             </span>
@@ -72,6 +72,7 @@ export function ConfidenceSignal({ score, confidence, classification, size = 'md
           {classification}
         </div>
 
+        <p className="text-xs text-slate-400 max-w-48">Not a calibrated probability of correctness.</p>
         {safeConfidence < 3 && (
           <p className="text-[10px] text-yellow-400 flex items-center gap-1">
             <span>⚠</span> Low confidence — human review recommended
@@ -81,3 +82,4 @@ export function ConfidenceSignal({ score, confidence, classification, size = 'md
     </div>
   )
 }
+

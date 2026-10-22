@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
+  safelist: [{ pattern: /^(border|bg|text)-(yellow|red|purple|green)-(400|500)(\/(10|20|30))?$/ }],
   theme: {
     extend: {
       colors: {
@@ -39,3 +40,4 @@ export default {
   },
   plugins: [],
 }
+

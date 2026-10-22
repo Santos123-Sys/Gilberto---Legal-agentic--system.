@@ -115,16 +115,31 @@ class ClusterSummary(BaseModel):
     dissent_notes: Optional[str] = None
 
 
+class AdversarialGap(BaseModel):
+    cluster: str = "cross_cluster"
+    gap_type: str = "reasoning_gap"
+    description: str
+    severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    brazilian_context: str = ""
+    recommended_action: str = ""
+
+
+class FollowUpAction(BaseModel):
+    action: str
+    responsible_cluster: str = ""
+    priority: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+
+
 class DevilAdvocateOutput(BaseModel):
     """Devil's Advocate gap analysis with Brazilian context and SAD score."""
     sad_score: float = Field(ge=1, le=5, description="Score do Advogado do Diabo (1-5)")
     gap_severity_score: float = Field(ge=0, le=10)
-    identified_gaps: List[Dict[str, Any]] = Field(default_factory=list)
+    identified_gaps: List[AdversarialGap] = Field(default_factory=list)
     unstated_assumptions: List[str] = Field(default_factory=list)
     weak_points: List[str] = Field(default_factory=list)
     cognitive_biases_detected: List[str] = Field(default_factory=list)
     unasked_questions: List[str] = Field(default_factory=list)
-    follow_up_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    follow_up_actions: List[FollowUpAction] = Field(default_factory=list)
     recommended_actions: List[str] = Field(default_factory=list)
     overall_assessment: str = ""
 
@@ -160,16 +175,18 @@ class GateTrigger(BaseModel):
 class GateDecisionRequest(BaseModel):
     """Human expert decision on a gate."""
     session_id: str
-    gate_number: int
+    gate_number: int = Field(ge=1, le=3)
+    gate_id: Optional[str] = None
     human_review_id: str = Field(description="Identifier of the reviewing expert")
     decision: GateDecision
-    reasoning: str = Field(description="Detailed expert reasoning")
+    reasoning: str = Field(min_length=1, max_length=10000, description="Detailed expert reasoning")
     override_score: Optional[float] = Field(default=None, ge=0, le=10)
     override_classification: Optional[RiskClassification] = None
 
 
 class GateRecord(BaseModel):
     """Full record of a gate interaction."""
+    gate_id: str
     gate_number: int
     trigger: GateTrigger
     status: GateStatus = GateStatus.PENDING
@@ -185,8 +202,8 @@ class GateRecord(BaseModel):
 
 class SessionCreateRequest(BaseModel):
     workflow_type: WorkflowType = WorkflowType.CONTRACT_REVIEW
-    num_agents: int = 20
-    num_rounds: int = 1
+    num_agents: int = Field(default=20, ge=1, le=100)  # Legacy input; actual team size is returned.
+    num_rounds: int = Field(default=1, ge=1, le=3)
     document_type: Optional[str] = None
     jurisdiction: str = "BR"
     urgency: Literal["immediate", "high", "normal", "low"] = "normal"
@@ -201,7 +218,7 @@ class SessionResponse(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    feedback: str = Field(min_length=10, description="User feedback text")
+    feedback: str = Field(min_length=10, max_length=10000, description="User feedback text")
     target_cluster: Optional[str] = None
     priority: Literal["low", "normal", "high"] = "normal"
 
@@ -224,3 +241,4 @@ class SSEEvent(BaseModel):
     type: str
     timestamp: str
     data: Dict[str, Any] = Field(default_factory=dict)
+
