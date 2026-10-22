@@ -94,6 +94,7 @@ test('mobile failure preserves partial findings and reset ignores stale events',
   await emit(page, [{ event_id: 1, type: 'CLUSTER_COMPLETE', cluster: 'foundation', summary: { summary: 'Retained clause analysis.' } },
     { event_id: 2, type: 'ERROR', message: 'Specialist review incomplete: compliance' }])
   await expect(page.getByRole('region', { name: 'Retained specialist findings' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
   await page.getByRole('button', { name: 'New Analysis' }).click()
   await emit(page, [{ event_id: 3, type: 'DEBATE_COMPLETE' }])
   await expect(page.getByRole('heading', { name: 'Configure Your Analysis' })).toBeVisible()

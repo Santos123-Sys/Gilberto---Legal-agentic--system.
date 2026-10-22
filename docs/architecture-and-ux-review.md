@@ -102,7 +102,7 @@ This is consistent with Anthropic's engineering guidance to start with simple, c
 - **Budgets:** initial rounds 1–3 (and configured MAX_ROUNDS), two feedback/re-analysis revisions by default, 250 Crew task dispatches/session, 120-second task/provider timeout, 10 MB upload limit. Estimated prompt inputs are paced with the existing per-session minute budget. A prompt larger than that configured minute budget fails before dispatch. Human review remains pending indefinitely, without consent on timeout.
 - **Trace:** event sequence/session IDs, round, task ID, role, status, queue wait/execution time and estimated prompt tokens. Token estimates exclude framework/system overhead and internal calls; no monetary budget or measured billing cost is asserted. Error responses omit provider payloads/contract excerpts.
 - **Feedback:** a rejected submission preserves the typed correction and report. An accepted revision clears the old current synthesis until new synthesis arrives. Older specialist findings can remain visible as explicitly incomplete/previous-revision material after a failure.
-- **Accessibility:** label inputs, show visible keyboard focus, support reduced motion, announce milestones rather than entire event lists, keep report text wrapped. This applies W3C status-message guidance: https://www.w3.org/WAI/WCAG22/Understanding/status-messages.html . It does not establish full WCAG conformance.
+- **Accessibility:** label inputs, show visible keyboard focus, support reduced motion, announce milestones rather than entire event lists, keep report text wrapped and reflow the session header on narrow screens. This applies W3C status-message guidance: https://www.w3.org/WAI/WCAG22/Understanding/status-messages.html . It does not establish full WCAG conformance.
 - **Rollout:** one API worker as already configured. Backend/frontend review-ID contracts must ship together. No database migration. Existing already-running engines cannot be migrated across process restart. Roll back by reverting this PR; process restart loses in-memory sessions as before.
 
 ### Material limits and next improvements
@@ -127,5 +127,5 @@ Ablate peer voting and then the adversarial reviewer separately. Their additiona
 ### Local results for this release
 
 - 24 backend tests passed, including real dependency imports, two-round review progression, override escalation, immutable event history and provider-timeout injection.
-- Four Chromium browser tests passed: same-number review identity/event deduplication, rejected acceptance, retained feedback on API rejection, and mobile partial-result/reset behavior. API responses and SSE events are synthetic in these interface tests.
+- Four Chromium browser tests passed: same-number review identity/event deduplication, rejected acceptance, retained feedback on API rejection, and mobile partial-result/reset behavior with an explicit no-horizontal-overflow check. API responses and SSE events are synthetic in these interface tests.
 - Vite production build passed. Full WCAG conformance, live provider calls, lawyer-labeled legal accuracy and production deployment are not verified.

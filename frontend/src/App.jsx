@@ -28,9 +28,9 @@ function StatusBar({ status, sessionId, currentRound, numRounds, docName, pendin
   const cfg = STATUS_CFG[status] || STATUS_CFG.idle
 
   return (
-    <div className="flex items-center gap-4 text-xs">
+    <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs min-w-0">
       {sessionId && (
-        <span className="text-slate-600 font-mono">{sessionId.slice(0, 8)}…</span>
+        <span className="hidden sm:inline text-slate-600 font-mono">{sessionId.slice(0, 8)}…</span>
       )}
       {docName && <span className="text-slate-500 truncate max-w-40" title={docName}>{docName}</span>}
       <div role="status" className={`flex items-center gap-1.5 ${cfg.color} ml-auto`}>
@@ -68,7 +68,7 @@ export default function App() {
 
       {/* ── Header ── */}
       <header className="border-b border-[var(--border)] bg-[var(--bg-secondary)]/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center gap-4">
+        <div className="max-w-7xl mx-auto px-6 min-h-16 py-3 flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gold-500/20 border border-gold-500/40 flex items-center justify-center">
               <Scale size={16} className="text-gold-400" />
@@ -79,7 +79,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex-1 mx-6">
+          <div className="order-3 w-full min-w-0 sm:order-none sm:w-auto sm:flex-1 sm:mx-6">
             <StatusBar
               status={session.status}
               sessionId={session.sessionId}
@@ -94,7 +94,7 @@ export default function App() {
           {!isIdle && !isRunning && (
             <button
               onClick={session.reset}
-              className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-300 transition-colors px-3 py-2 rounded-lg hover:bg-slate-800/50"
+              className="ml-auto shrink-0 flex items-center gap-2 text-xs text-slate-400 hover:text-slate-300 transition-colors px-3 py-2 rounded-lg hover:bg-slate-800/50"
             >
               <RotateCcw size={13} />
               New Analysis
