@@ -7,6 +7,7 @@ Centralized configuration with environment variable support.
 import os
 from typing import List, Optional
 from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -60,6 +61,11 @@ class Settings(BaseSettings):
         os.getenv("LLM_INPUT_TOKENS_PER_MINUTE", "10000")
     )
 
+    MAX_MODEL_CALLS: int = Field(default=250, ge=1, le=1000)
+    MAX_FEEDBACK_ROUNDS: int = Field(default=2, ge=0, le=5)
+    LLM_REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0, le=600)
+    MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024
+
     # ── Observability ────────────────────────
     AGENTOPS_API_KEY: Optional[str] = os.getenv("AGENTOPS_API_KEY", None)
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -78,3 +84,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+

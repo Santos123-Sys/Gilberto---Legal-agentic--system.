@@ -112,6 +112,7 @@ export function useAgenticSession() {
       }
 
       const data = await res.json()
+      setConfig(data.config)
       setSessionId(data.session_id)
       setShowIntentPreview(true)
       setStatus('preview')
@@ -186,10 +187,11 @@ export function useAgenticSession() {
       if (eventSourceRef.current !== es) return
       try {
         const event = JSON.parse(msg.data)
+        if (event.event_id && event.event_id <= cursorRef.current) return
         if (event.type !== 'STREAM_END') {
           setEvents(prev => [...prev, event])
           setLastEventAt(event.timestamp || new Date().toISOString())
-          cursorRef.current += 1
+          cursorRef.current = event.event_id || cursorRef.current + 1
         }
 
         switch (event.type) {
@@ -220,6 +222,7 @@ export function useAgenticSession() {
           case 'GATE_TRIGGERED':
             setPendingGates(prev => [...prev, {
               gate_number: event.gate_number,
+              gate_id: event.gate_id,
               ...event.trigger,
               ...event.record,
             }])
@@ -227,12 +230,14 @@ export function useAgenticSession() {
             break
 
           case 'GATE_RESOLVED':
-            setPendingGates(prev => prev.filter(g => g.gate_number !== event.gate_number))
+            setPendingGates(prev => prev.filter(g => g.gate_id !== event.gate_id))
+            if (event.record) setGateRecords(prev => [...prev.filter(g => g.gate_id !== event.gate_id), event.record])
+            if (event.summary) setFinalSynthesis(event.summary)
             break
 
           case 'ALL_GATES_RESOLVED':
             setPendingGates([])
-            setStatus('awaiting_feedback')
+            setStatus('running')
             break
 
           case 'ROUND_COMPLETE':
@@ -246,9 +251,8 @@ export function useAgenticSession() {
           case 'DEBATE_COMPLETE':
             setExecutionMetrics(event.execution_metrics || {})
             setGateRecords(event.gate_records || [])
-            if (!event.gate_records?.length) {
-              setStatus('awaiting_feedback')
-            }
+            setPendingGates([])
+            setStatus('awaiting_feedback')
             break
 
           case 'ERROR':
@@ -260,6 +264,10 @@ export function useAgenticSession() {
             es.close()
             if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
             setConnectionState('closed')
+            // History describes prior stages; the server owns the current terminal state.
+            fetch(`${API_BASE}/api/sessions/${sid}/status`).then(res => res.ok ? res.json() : null)
+              .then(remote => { if (remote && eventSourceRef.current === es) setStatus(statusFromServer(remote.status)) })
+              .catch(() => {})
             break
         }
       } catch (e) {
@@ -274,6 +282,10 @@ export function useAgenticSession() {
       es.close()
       setConnectionState('reconnecting')
       reconnectAttemptsRef.current += 1
+      if (reconnectAttemptsRef.current > 5) {
+        setConnectionState('disconnected')
+        return
+      }
       const delay = Math.min(10000, 1000 * (2 ** Math.min(reconnectAttemptsRef.current - 1, 4)))
       reconnectTimerRef.current = setTimeout(() => {
         reconnectTimerRef.current = null
@@ -328,7 +340,7 @@ export function useAgenticSession() {
     return () => { cancelled = true }
   }, [connectStream])
 
-  const submitGateDecision = useCallback(async (gateNumber, decision, reasoning, overrideScore) => {
+  const submitGateDecision = useCallback(async (gateNumber, decision, reasoning, overrideScore, gateId) => {
     if (!sessionId) return false
 
     try {
@@ -338,6 +350,7 @@ export function useAgenticSession() {
         body: JSON.stringify({
           session_id: sessionId,
           gate_number: gateNumber,
+          gate_id: gateId,
           human_review_id: 'web_user',
           decision,
           reasoning,
@@ -345,20 +358,18 @@ export function useAgenticSession() {
         }),
       })
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${res.status}`))
+      }
 
       const data = await res.json()
 
-      // Update local state
-      setPendingGates(prev => prev.filter(g => g.gate_number !== gateNumber))
-      setGateRecords(prev => [...prev, {
-        gate_number: gateNumber,
-        status: decision === 'approve' ? 'approved' : decision === 'override' ? 'overridden' : 'reanalysis_requested',
-        human_decision: { decision, reasoning, human_review_id: 'web_user' },
-      }])
-
+      setError(null)
+      setPendingGates(prev => prev.filter(g => g.gate_id !== data.gate_id))
+      setGateRecords(prev => [...prev.filter(g => g.gate_id !== data.gate_id), data.record])
       if (data.remaining_pending?.length === 0) {
-        setStatus('awaiting_feedback')
+        setStatus(current => current === 'awaiting_gate' ? 'running' : current)
       }
 
       return true
@@ -371,8 +382,6 @@ export function useAgenticSession() {
   const submitFeedback = useCallback(async (feedback) => {
     if (!sessionId) return
 
-    setStatus('running')
-
     try {
       const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/feedback`, {
         method: 'POST',
@@ -380,21 +389,33 @@ export function useAgenticSession() {
         body: JSON.stringify({ feedback }),
       })
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${res.status}`))
+      }
 
+      setFinalSynthesis(null)
+      setStatus('running')
+      setError(null)
       // Reconnect stream for new events
       connectStream(sessionId, cursorRef.current)
+      return true
     } catch (err) {
       setError(`Feedback failed: ${err.message}`)
-      setStatus('error')
+      return false
     }
-  }, [sessionId, events.length, connectStream])
+  }, [sessionId, connectStream])
 
   const acceptResult = useCallback(async () => {
     if (!sessionId) return
 
     try {
-      await fetch(`${API_BASE}/api/sessions/${sessionId}/accept`, { method: 'POST' })
+      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/accept`, { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${res.status}`))
+      }
+      setError(null)
       setStatus('completed')
     } catch (err) {
       setError(`Accept failed: ${err.message}`)
@@ -402,6 +423,9 @@ export function useAgenticSession() {
   }, [sessionId])
 
   const reset = useCallback(() => {
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+    reconnectTimerRef.current = null
+    reconnectAttemptsRef.current = 0
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
       eventSourceRef.current = null
@@ -444,7 +468,7 @@ export function useAgenticSession() {
     showIntentPreview,
     connectionState,
     lastEventAt,
-    reconnect: () => sessionId && connectStream(sessionId, cursorRef.current),
+    reconnect: () => { reconnectAttemptsRef.current = 0; return sessionId && connectStream(sessionId, cursorRef.current) },
     createSession,
     confirmAndStart,
     submitGateDecision,
@@ -454,3 +478,4 @@ export function useAgenticSession() {
     setShowIntentPreview,
   }
 }
+

@@ -1,7 +1,7 @@
 import { Activity, Check, Circle, Clock3, Loader, Radio, RefreshCw, ShieldAlert } from 'lucide-react'
 
 const STAGES = [
-  { id: 'clusters', label: 'Parallel specialist review', hint: 'Five legal workstreams examine the document at the same time.' },
+  { id: 'clusters', label: 'Parallel specialist review', hint: 'Configured legal workstreams review the document through paced model requests.' },
   { id: 'adversarial', label: 'Adversarial review', hint: 'A separate reviewer looks for gaps, assumptions and weak reasoning.' },
   { id: 'synthesis', label: 'Manager synthesis', hint: 'The manager reconciles findings and prepares the consolidated analysis.' },
   { id: 'checks', label: 'Quality and human checks', hint: 'Risk gates are surfaced for your review when the analysis triggers them.' },
@@ -20,7 +20,7 @@ function eventCopy(event) {
   const cluster = event.cluster_name || (typeof event.cluster === 'string' ? event.cluster.replaceAll('_', ' ') : null) || 'Specialist team'
   const messages = {
     DEBATE_START: ['Analysis started', 'The document was accepted and the specialist teams are being coordinated.'],
-    ROUND_START: [`Round ${event.round || ''} started`.trim(), 'The teams are reviewing the document in parallel.'],
+    ROUND_START: [`Round ${event.round || ''} started`.trim(), 'The workstreams are reviewing the document through paced model requests.'],
     CLUSTER_START: [`${cluster} review started`, 'This workstream is examining its assigned legal issues.'],
     AGENT_THINKING: [`${event.agent || 'A specialist'} is reviewing`, 'The agent is preparing its findings for this workstream.'],
     AGENT_ANALYSIS_COMPLETE: [`${event.agent || 'A specialist'} submitted findings`, 'Its findings are now available to the team review.'],
@@ -35,6 +35,7 @@ function eventCopy(event) {
     GATE_RESOLVED: [`Gate ${event.gate_number || ''} reviewed`.trim(), 'Your decision has been recorded.'],
     ROUND_COMPLETE: [`Round ${event.round || ''} complete`.trim(), 'The round summary is ready and the debate can move to its next step.'],
     DEBATE_COMPLETE: ['Analysis run complete', 'The result is being prepared for review.'],
+    PROVIDER_WAIT: ['Waiting for provider capacity', 'The request is queued to respect the configured provider limits.'],
     ERROR: ['The analysis stopped', event.message || 'The service returned an error.'],
   }
   return messages[event.type] || [event.type?.replaceAll('_', ' ').toLowerCase() || 'Analysis update', 'The analysis workflow recorded a new update.']
@@ -69,6 +70,8 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
   const currentRound = Math.min(roundCount, rounds.length + 1)
   const completedClusters = new Set(activeEvents.filter(event => event.type === 'CLUSTER_COMPLETE').map(event => event.cluster))
   const latest = events.slice(-7).reverse()
+  const configured = events.find(event => event.type === 'DEBATE_START')?.active_clusters
+  const visibleClusters = configured ? CLUSTERS.filter(([id]) => configured.includes(id)) : []
   const connection = {
     connecting: { label: 'Connecting to live updates', className: 'text-amber-300', icon: <Loader size={13} className="animate-spin" /> },
     connected: { label: 'Live updates connected', className: 'text-emerald-300', icon: <Radio size={13} /> },
@@ -79,11 +82,12 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
   }[connectionState] || { label: 'Preparing live updates', className: 'text-slate-400', icon: <Clock3 size={13} /> }
 
   return (
-    <section className="space-y-5" aria-live="polite">
+    <section className="space-y-5">
       <div className="card p-5 sm:p-6 border border-gold-500/25">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-gold-400">Live analysis</p>
+            <p className="sr-only" role="status">{STAGES[currentStage].label}</p>
             <h2 className="font-display text-2xl text-slate-100 mt-1">Your legal teams are working</h2>
             <p className="text-sm text-slate-400 mt-2 max-w-2xl">Follow the meaningful stages of the debate here. The final analysis and any review requests will appear in this workspace.</p>
           </div>
@@ -161,7 +165,7 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
             <h3 className="font-display text-lg text-slate-100">Parallel review teams</h3>
           </div>
           <div className="space-y-2">
-            {CLUSTERS.map(([id, name]) => {
+            {visibleClusters.map(([id, name]) => {
               const complete = completedClusters.has(id)
               const active = activeEvents.some(event => event.cluster === id && ['CLUSTER_START', 'AGENT_THINKING', 'AGENT_VOTING'].includes(event.type)) && !complete
               return <div key={id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-700/50 bg-slate-900/40 px-3 py-2.5">
@@ -179,3 +183,4 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
     </section>
   )
 }
+

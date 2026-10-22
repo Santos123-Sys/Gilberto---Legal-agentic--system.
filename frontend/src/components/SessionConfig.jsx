@@ -9,8 +9,7 @@ const WORKFLOW_OPTIONS = [
 ]
 
 export function SessionConfig({ onStart, loading }) {
-  const [numAgents, setNumAgents] = useState(3)
-  const [numRounds, setNumRounds] = useState(2)
+  const [numRounds, setNumRounds] = useState(1)
   const [workflowType, setWorkflowType] = useState('full_analysis')
   const [file, setFile] = useState(null)
   const [dragging, setDragging] = useState(false)
@@ -24,7 +23,7 @@ export function SessionConfig({ onStart, loading }) {
 
   const handleSubmit = () => {
     if (!file) return
-    onStart({ numAgents, numRounds, workflowType }, file)
+    onStart({ numRounds, workflowType }, file)
   }
 
   const AGENT_ROLES_PREVIEW = [
@@ -33,7 +32,7 @@ export function SessionConfig({ onStart, loading }) {
     'Negotiation Strategist',
     'Corporate Governance Expert',
     "Devil's Advocate",
-  ].slice(0, numAgents)
+  ]
 
   return (
     <div className="animate-fade-in space-y-8">
@@ -41,7 +40,7 @@ export function SessionConfig({ onStart, loading }) {
       <div className="text-center space-y-3">
         <h2 className="font-display text-3xl text-gold-400">Configure Your Analysis</h2>
         <p className="text-slate-400 max-w-lg mx-auto text-sm leading-relaxed">
-          Define how many legal specialists will debate your document and how many rounds the discussion will run.
+          Choose your review workflow and number of rounds. The server selects the configured specialist teams; model requests are staggered to respect provider limits.
         </p>
       </div>
 
@@ -73,22 +72,6 @@ export function SessionConfig({ onStart, loading }) {
             </div>
           </div>
 
-          {/* Agent count */}
-          <div className="card p-5 space-y-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-gold-400">
-              <Users size={16} />
-              Number of Agents — <span className="text-white">{numAgents}</span>
-            </label>
-            <input
-              type="range" min={2} max={5} value={numAgents}
-              onChange={(e) => setNumAgents(Number(e.target.value))}
-              className="w-full accent-gold-500 cursor-pointer"
-            />
-            <div className="flex justify-between text-xs text-slate-500">
-              <span>2 (faster)</span><span>5 (deeper)</span>
-            </div>
-          </div>
-
           {/* Round count */}
           <div className="card p-5 space-y-3">
             <label className="flex items-center gap-2 text-sm font-medium text-gold-400">
@@ -96,12 +79,12 @@ export function SessionConfig({ onStart, loading }) {
               Debate Rounds — <span className="text-white">{numRounds}</span>
             </label>
             <input
-              type="range" min={1} max={5} value={numRounds}
+              aria-label="Debate rounds" type="range" min={1} max={3} value={numRounds}
               onChange={(e) => setNumRounds(Number(e.target.value))}
               className="w-full accent-gold-500 cursor-pointer"
             />
             <div className="flex justify-between text-xs text-slate-500">
-              <span>1 (quick)</span><span>5 (thorough)</span>
+              <span>1 (quick)</span><span>3 (thorough)</span>
             </div>
           </div>
         </div>
@@ -121,10 +104,10 @@ export function SessionConfig({ onStart, loading }) {
               type="file"
               id="doc-upload"
               accept=".txt,.pdf,.docx"
-              className="hidden"
+              className="sr-only"
               onChange={(e) => setFile(e.target.files[0])}
             />
-            <label htmlFor="doc-upload" className="cursor-pointer text-center space-y-3">
+            <label htmlFor="doc-upload" tabIndex={0} role="button" onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('doc-upload').click() } }} className="cursor-pointer text-center space-y-3">
               <div className="text-4xl">{file ? '📄' : '📁'}</div>
               {file ? (
                 <>
@@ -142,7 +125,7 @@ export function SessionConfig({ onStart, loading }) {
 
           {/* Agent lineup preview */}
           <div className="card p-5 space-y-3">
-            <p className="text-xs font-medium text-gold-400 uppercase tracking-widest">Agent Lineup</p>
+            <p className="text-xs font-medium text-gold-400 uppercase tracking-widest">Review coverage</p>
             <div className="space-y-2">
               {AGENT_ROLES_PREVIEW.map((role, i) => (
                 <div key={role} className="flex items-center gap-3 py-1.5">
@@ -180,3 +163,4 @@ export function SessionConfig({ onStart, loading }) {
     </div>
   )
 }
+

@@ -52,3 +52,8 @@ Thumbs.db
 *.log
 .coverage
 htmlcov/
+
+
+# Browser verification output
+playwright-report/
+test-results/

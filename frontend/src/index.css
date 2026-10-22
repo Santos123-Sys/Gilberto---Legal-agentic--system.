@@ -93,3 +93,9 @@ body {
   70%  { box-shadow: 0 0 0 10px rgba(212, 168, 67, 0); }
   100% { box-shadow: 0 0 0 0 rgba(212, 168, 67, 0); }
 }
+
+
+:focus-visible { outline: 2px solid #fbbf24; outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

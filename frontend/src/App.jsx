@@ -33,7 +33,7 @@ function StatusBar({ status, sessionId, currentRound, numRounds, docName, pendin
         <span className="text-slate-600 font-mono">{sessionId.slice(0, 8)}…</span>
       )}
       {docName && <span className="text-slate-500 truncate max-w-40" title={docName}>{docName}</span>}
-      <div className={`flex items-center gap-1.5 ${cfg.color} ml-auto`}>
+      <div role="status" className={`flex items-center gap-1.5 ${cfg.color} ml-auto`}>
         {cfg.icon}
         <span>{cfg.label}</span>
       </div>
@@ -57,7 +57,7 @@ export default function App() {
 
   const showDebatePanel = !isIdle && !isPreview && !isRunning
   const showFeedback = isAwaiting
-  const showSynthesis = (isAwaiting || isCompleted || isAwaitingGate) && session.finalSynthesis
+  const showSynthesis = (isAwaiting || isCompleted || isAwaitingGate || isError) && session.finalSynthesis
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] relative">
@@ -107,14 +107,26 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-6 py-10">
 
         {/* Error banner */}
-        {isError && (
+        {session.error && (
           <div className="mb-6 card border border-red-500/30 bg-red-500/5 p-4 flex items-start gap-3 animate-fade-in">
             <AlertCircle size={18} className="text-red-400 mt-0.5 flex-shrink-0" />
             <div>
               <p className="text-sm font-medium text-red-400">An error occurred</p>
-              <p className="text-xs text-slate-400 mt-1">{session.error}</p>
+              <p className="text-sm text-slate-300 mt-1" role="alert">{session.error}</p>
             </div>
           </div>
+        )}
+
+        {isError && Object.keys(session.clusterResults).length > 0 && (
+          <section className="card p-5 mb-6 space-y-4" aria-label="Retained specialist findings">
+            <h2 className="font-display text-xl text-yellow-300">Partial findings — incomplete review</h2>
+            <p className="text-sm text-slate-300">These workstream results were retained. They may include the previous revision and do not constitute a complete or accepted analysis.</p>
+            {Object.entries(session.clusterResults).map(([id, result]) => (
+              <details key={id}><summary className="cursor-pointer text-slate-200">{result.cluster_name || id}</summary>
+                <p className="mt-2 text-sm text-slate-300 whitespace-pre-wrap break-words">{typeof result.summary === 'string' ? result.summary : 'See the analysis events for details.'}</p>
+              </details>
+            ))}
+          </section>
         )}
 
         {/* Completed banner */}
@@ -191,7 +203,7 @@ export default function App() {
 
             {session.pendingGates.map(gate => (
               <GateReviewPanel
-                key={gate.gate_number}
+                key={gate.gate_id || gate.gate_number}
                 gate={gate}
                 clusterSummary={gate.affected_cluster ? session.clusterResults[gate.affected_cluster] : null}
                 daFindings={gate.gate_number === 2 && Array.isArray(session.devilAdvocate?.identified_gaps) ? session.devilAdvocate.identified_gaps : null}
@@ -199,9 +211,9 @@ export default function App() {
                   gate.gate_number,
                   decision.decision,
                   decision.reasoning,
-                  decision.override_score
+                  decision.override_score,
+                  gate.gate_id
                 )}
-                onClose={() => {}}
               />
             ))}
           </div>
@@ -227,6 +239,7 @@ export default function App() {
                 a.href = url
                 a.download = `gilberto-analysis-${session.sessionId}.json`
                 a.click()
+                URL.revokeObjectURL(url)
               }}
             />
 
@@ -275,3 +288,4 @@ export default function App() {
     </div>
   )
 }
+
