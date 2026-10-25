@@ -20,6 +20,8 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
 
   return (
     <div className="space-y-6">
+      <p className="text-sm text-slate-300">AI-generated draft. Check cited clauses and legal authorities before relying on the conclusions. Model agreement does not verify legal correctness.</p>
+      {synthesis.human_override && <p role="status" className="text-sm text-yellow-300">Risk score adjusted by a human reviewer: {synthesis.human_override.reasoning}. Model score: {synthesis.model_assessment?.final_score}.</p>}
       {/* Executive Summary */}
       <div className="card p-6 border-gold-500/30">
         <div className="flex items-center gap-3 mb-4">
@@ -266,3 +268,4 @@ function ClusterResultCard({ id, result }) {
     </div>
   )
 }
+
