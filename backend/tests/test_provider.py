@@ -27,6 +27,7 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(content, '{"ok":true}')
         post.assert_called_once()
         self.assertTrue(post.call_args.args[0].endswith('/chat/completions'))
+        self.assertEqual(post.call_args.kwargs['headers']['Authorization'], 'Key synthetic-secret')
         self.assertNotIn('max_retries', post.call_args.kwargs['json'])
         self.assertNotIn('response_format', post.call_args.kwargs['json'])
 

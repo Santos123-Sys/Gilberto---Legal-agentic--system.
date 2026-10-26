@@ -16,7 +16,7 @@ class MaritacaClient:
         try:
             with httpx.Client(timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS) as client:
                 response = client.post(settings.MARITACA_BASE_URL.rstrip('/') + '/chat/completions',
-                    headers={'Authorization': 'Bearer ' + settings.MARITACA_API_KEY.strip()},
+                    headers={'Authorization': 'Key ' + settings.MARITACA_API_KEY.strip()},
                     json={'model': settings.MARITACA_MODEL, 'messages': messages,
                           'temperature': settings.TEMPERATURE, 'max_tokens': settings.MAX_TOKENS})
         except httpx.TimeoutException:
