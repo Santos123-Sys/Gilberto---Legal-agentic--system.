@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+mkdir -p /data
+chown appuser:appuser /data
+exec su -s /bin/sh appuser -c 'exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1'
