@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from config import settings
+import session_store
 from document_extractor import DocumentExtractionError, extract_document_text
 from engines.debate_engine_v3 import DebateEngineV3, ReanalysisRequested, WorkflowError
 from scoring import classification_for
@@ -67,8 +68,21 @@ sessions: Dict[str, dict] = {}
 
 def _get_session(session_id: str) -> dict:
     if session_id not in sessions:
+        recovered = session_store.load(session_id, DebateEngineV3)
+        if recovered is not None:
+            sessions[session_id] = recovered
+    if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
     return sessions[session_id]
+
+
+@app.middleware("http")
+async def checkpoint_mutations(request: Request, call_next):
+    response = await call_next(request)
+    if request.method == "POST" and response.status_code < 300:
+        for session in list(sessions.values()):
+            session_store.save(session)
+    return response
 
 
 # ─────────────────────────────────────────────
@@ -110,6 +124,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                         session["gate_records"] = engine.get_all_gate_records()
                     elif kind == "ERROR":
                         raise RuntimeError(event.get("message", "Analysis failed"))
+                    session_store.save(session)
                 break
             except ReanalysisRequested as exc:
                 if session["feedback_rounds"] >= settings.MAX_FEEDBACK_ROUNDS:
@@ -129,6 +144,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
         engine._running = False
         session["execution_metrics"] = engine.get_metrics()
         session["gate_records"] = engine.get_all_gate_records()
+        session_store.save(session)
 
 
 # ─────────────────────────────────────────────
@@ -139,6 +155,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
 async def health():
     return {
         "status": "ok",
+        "session_storage": "sqlite_checkpoint",
         "version": "3.0.0",
         "architecture": "parallel_clusters_with_devils_advocate",
         "active_clusters": settings.active_clusters_list,

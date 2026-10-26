@@ -1,3 +1,7 @@
+## Durable checkpoints
+
+Set `SESSION_DB_PATH=/data/sessions.sqlite3` on a persistent Railway volume mounted at `/data`. A single API worker writes atomic SQLite checkpoints after events and successful mutations. Completed results, uploaded text, review decisions and feedback-ready sessions survive restarts. Interrupted model execution and pending review execution recover as an explicit error with retained findings; calls are never silently replayed. Sessions created before checkpoint deployment cannot be recovered from old server memory. This is durability on one volume, not an off-site backup or an authorization system.
+
 # Current workflow reliability review
 
 See [the architecture and UX review](docs/architecture-and-ux-review.md) for implemented changes, limits, architecture comparisons and verification instructions. The current UI uses the server-configured specialist roster, supports 1–3 initial rounds, and requires each triggered review before acceptance. Sessions are held in server memory.

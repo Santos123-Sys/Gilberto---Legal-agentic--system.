@@ -1,0 +1,50 @@
+"""Atomic SQLite checkpoints on a persistent volume; one API worker required."""
+import json
+import os
+import sqlite3
+from pathlib import Path
+
+ENGINE_FIELDS = ('current_round', 'cluster_summaries', 'devil_advocate_output',
+                 'master_summaries', 'feedback_agents', 'execution_metrics')
+
+
+def connect():
+    path = os.environ.get('SESSION_DB_PATH', 'data/sessions.sqlite3')
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=15)
+    connection.execute('PRAGMA journal_mode=WAL')
+    connection.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
+    return connection
+
+
+def save(session):
+    engine = session['engine']
+    payload = {key: value for key, value in session.items() if key not in ('engine', 'task')}
+    payload['engine_state'] = {key: getattr(engine, key) for key in ENGINE_FIELDS}
+    payload['engine_state']['gate_records'] = engine.get_all_gate_records()
+    with connect() as db:
+        db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?)',
+                   (session['id'], json.dumps(payload, ensure_ascii=False)))
+
+
+def load(session_id, engine_factory):
+    with connect() as db:
+        row = db.execute('SELECT payload FROM sessions WHERE id = ?', (session_id,)).fetchone()
+    if row is None:
+        return None
+    session = json.loads(row[0])
+    state = session.pop('engine_state')
+    config = session['config']
+    engine = engine_factory(session_id, config['num_agents'], config['num_rounds'], config['workflow_type'])
+    for key in ENGINE_FIELDS:
+        setattr(engine, key, state[key])
+    engine.gate_evaluator.gate_records = state['gate_records']
+    engine.gate_evaluator.pending_gates = [g for g in state['gate_records'] if g['status'] == 'pending']
+    session.update(engine=engine, task=None)
+    if session['status'] in ('running', 'awaiting_gate'):
+        session['status'] = 'error'
+        session['error'] = 'Execution was interrupted by a server restart. Saved findings and review records are retained. Start a new analysis to continue safely.'
+        session['events'].append({'type': 'ERROR', 'message': session['error'],
+                                  'event_id': len(session['events']) + 1, 'session_id': session_id})
+        save(session)
+    return session
