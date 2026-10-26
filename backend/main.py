@@ -30,6 +30,7 @@ from fastapi.responses import StreamingResponse
 
 from config import settings
 import session_store
+from provider import ProviderError
 from document_extractor import DocumentExtractionError, extract_document_text
 from engines.debate_engine_v3 import DebateEngineV3, ReanalysisRequested, WorkflowError
 from scoring import classification_for
@@ -135,7 +136,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
     except Exception as exc:
         # Do not expose provider payloads or contract excerpts in operational errors.
         session["status"] = "error"
-        session["error"] = (str(exc) if isinstance(exc, WorkflowError) else
+        session["error"] = (str(exc) if isinstance(exc, (WorkflowError, ProviderError)) else
             "Analysis could not finish because a provider call or output validation failed. Completed findings are retained for manual review.")
         _append_event(session, {"type": "ERROR", "message": session["error"],
                                 "error_type": type(exc).__name__,
@@ -156,6 +157,8 @@ async def health():
     return {
         "status": "ok",
         "session_storage": "sqlite_checkpoint",
+        "provider": {"name": "Maritaca", "model": settings.MARITACA_MODEL,
+                     "configured": bool(settings.MARITACA_API_KEY.strip()), "transport": "direct_chat_completion"},
         "version": "3.0.0",
         "architecture": "parallel_clusters_with_devils_advocate",
         "active_clusters": settings.active_clusters_list,
@@ -189,11 +192,13 @@ async def create_session(request: SessionCreateRequest):
         workflow_type=request.workflow_type.value if hasattr(request.workflow_type, 'value') else str(request.workflow_type),
     )
 
+    engine.review_depth = request.review_depth
     config = request.model_dump()
     active = [cid for cid in engine.feedback_agents if cid in settings.active_clusters_list]
     config["active_clusters"] = [{"id": cid, "name": CLUSTERS[cid]["name"],
-                                  "agents": len(CLUSTERS[cid]["agents"])} for cid in active]
+                                  "agents": 1 if request.review_depth == "focused" else len(CLUSTERS[cid]["agents"])} for cid in active]
     config["num_agents"] = sum(item["agents"] for item in config["active_clusters"])
+    config["initial_model_calls"] = sum((2 * c["agents"] + 1) if c["agents"] > 1 else 2 for c in config["active_clusters"]) * request.num_rounds + 2 * request.num_rounds
     config["max_feedback_rounds"] = settings.MAX_FEEDBACK_ROUNDS
     config["model_call_budget"] = settings.MAX_MODEL_CALLS
     if not active:

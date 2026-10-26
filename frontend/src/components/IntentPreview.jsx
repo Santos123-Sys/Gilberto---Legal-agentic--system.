@@ -98,6 +98,7 @@ export function IntentPreview({ config, onConfirm, onEdit }) {
 
       <p className="text-sm text-slate-300 mt-4">{config.num_agents} specialists · requests are staggered · {config.model_call_budget} model tasks maximum per session · up to {config.max_feedback_rounds} feedback revisions. Results are AI-generated drafts for legal review. Sessions are kept in server memory and are lost on restart.</p>
 
+      <p className="text-sm text-slate-300 mt-3">Review depth: {config.review_depth || 'full'} · {config.initial_model_calls ?? 'See configured roster'} initial provider calls. Revisions consume additional calls. Focused drafts have fewer independent reviewers; equivalent legal accuracy has not been established.</p>
       {/* Actions */}
       <div className="flex gap-3 mt-6">
         <button

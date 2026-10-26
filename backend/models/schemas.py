@@ -201,6 +201,7 @@ class GateRecord(BaseModel):
 # ─────────────────────────────────────────────
 
 class SessionCreateRequest(BaseModel):
+    review_depth: Literal["full", "focused"] = "full"
     workflow_type: WorkflowType = WorkflowType.CONTRACT_REVIEW
     num_agents: int = Field(default=20, ge=1, le=100)  # Legacy input; actual team size is returned.
     num_rounds: int = Field(default=1, ge=1, le=3)

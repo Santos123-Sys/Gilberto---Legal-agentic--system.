@@ -9,6 +9,7 @@ const WORKFLOW_OPTIONS = [
 ]
 
 export function SessionConfig({ onStart, loading }) {
+  const [reviewDepth, setReviewDepth] = useState('full')
   const [numRounds, setNumRounds] = useState(1)
   const [workflowType, setWorkflowType] = useState('full_analysis')
   const [file, setFile] = useState(null)
@@ -23,7 +24,7 @@ export function SessionConfig({ onStart, loading }) {
 
   const handleSubmit = () => {
     if (!file) return
-    onStart({ numRounds, workflowType }, file)
+    onStart({ numRounds, workflowType, reviewDepth }, file)
   }
 
   const AGENT_ROLES_PREVIEW = [
@@ -72,6 +73,14 @@ export function SessionConfig({ onStart, loading }) {
             </div>
           </div>
 
+          <div className="card p-5 space-y-3">
+            <label htmlFor="review-depth" className="block text-sm text-gold-400">Review depth</label>
+            <select id="review-depth" value={reviewDepth} onChange={e => setReviewDepth(e.target.value)} className="w-full bg-slate-800 text-slate-200 rounded p-3">
+              <option value="full">Full specialist review — 47 calls per round</option>
+              <option value="focused">Focused draft — 12 calls per round</option>
+            </select>
+            <p className="text-sm text-slate-400">Both cover the five configured workstreams. Focused drafts use one reviewer per workstream and have less independent scrutiny. Call counts shown assume all five workstreams are enabled; the next screen shows the actual plan.</p>
+          </div>
           {/* Round count */}
           <div className="card p-5 space-y-3">
             <label className="flex items-center gap-2 text-sm font-medium text-gold-400">
