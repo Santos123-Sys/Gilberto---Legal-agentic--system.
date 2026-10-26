@@ -86,6 +86,7 @@ export function useAgenticSession() {
       compliance_check: 'regulatory',
     }
     const apiConfig = {
+      review_depth: sessionConfig.reviewDepth || "full",
       num_agents: Number(sessionConfig.numAgents ?? sessionConfig.num_agents ?? 3),
       num_rounds: Number(sessionConfig.numRounds ?? sessionConfig.num_rounds ?? 2),
       workflow_type: workflowTypes[workflowType] || workflowType || 'contract_review',

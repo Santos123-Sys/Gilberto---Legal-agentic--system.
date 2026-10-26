@@ -5,7 +5,7 @@ const config = { num_rounds: 1, num_agents: 4, workflow_type: 'contract_review',
 const synthesis = { final_score: 6, final_classification: 'Relevante', confidence: 4,
   executive_summary: 'Synthetic review for interface testing.', critical_actions: [], approval_checklist: [] }
 
-async function setup(page, acceptStatus = 200) {
+async function setup(page, acceptStatus = 200, focused = false) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.addInitScript(() => {
@@ -29,14 +29,16 @@ async function setup(page, acceptStatus = 200) {
         : path.endsWith('/start') ? { status: 200, body: { status: 'started' } }
           : path.endsWith('/feedback') ? { status: 409, body: { detail: 'Re-analysis limit reached' } }
             : path.endsWith('/status') ? { status: 200, body: { status: 'awaiting_feedback' } }
-              : { status: 200, body: { session_id: 'test-session', config, status: 'created' } }
+              : { status: 200, body: { session_id: 'test-session', config: { ...config, review_depth: focused ? 'focused' : 'full', initial_model_calls: focused ? 4 : 11 }, status: 'created' } }
     await route.fulfill({ status: response.status, json: response.body })
   })
   await page.goto('/')
   await page.locator('#doc-upload').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic contract for UI testing.') })
+  if (focused) await page.getByLabel('Review depth', { exact: true }).selectOption('focused')
   await page.getByRole('button', { name: 'Start Debate' }).click()
   await expect(page.getByText('4 specialists · requests are staggered', { exact: false })).toBeVisible()
   await expect(page.getByText('Number of Agents', { exact: false })).toHaveCount(0)
+  if (focused) await expect(page.getByText('focused · 4 initial provider calls', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
   await expect.poll(() => page.evaluate(() => window.testStreams.length)).toBe(1)
   return errors
@@ -98,5 +100,13 @@ test('mobile failure preserves partial findings and reset ignores stale events',
   await page.getByRole('button', { name: 'New Analysis' }).click()
   await emit(page, [{ event_id: 3, type: 'DEBATE_COMPLETE' }])
   await expect(page.getByRole('heading', { name: 'Configure Your Analysis' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+
+test('review depth choice is sent to the server and the actual call plan is visible', async ({ page }) => {
+  const request = page.waitForRequest(r => r.url().endsWith('/api/sessions') && r.method() === 'POST')
+  const errors = await setup(page, 200, true)
+  expect((await request).postDataJSON().review_depth).toBe('focused')
   expect(errors).toEqual([])
 })

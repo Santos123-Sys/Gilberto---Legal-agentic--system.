@@ -36,6 +36,7 @@ def load(session_id, engine_factory):
     state = session.pop('engine_state')
     config = session['config']
     engine = engine_factory(session_id, config['num_agents'], config['num_rounds'], config['workflow_type'])
+    engine.review_depth = config.get("review_depth", "full")
     for key in ENGINE_FIELDS:
         setattr(engine, key, state[key])
     engine.gate_evaluator.gate_records = state['gate_records']
