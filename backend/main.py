@@ -177,6 +177,17 @@ async def health():
     }
 
 
+@app.get("/api/ready")
+async def ready():
+    # Liveness and readiness differ: don't route users to an instance that
+    # cannot read their persisted legal review checkpoints.
+    try:
+        session_store.is_ready()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Session storage is unavailable")
+    return {"status": "ready"}
+
+
 @app.post("/api/sessions", response_model=SessionResponse)
 async def create_session(request: SessionCreateRequest):
     """Create a new debate session with specified configuration."""
