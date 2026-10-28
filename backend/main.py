@@ -249,6 +249,17 @@ async def start_session(session_id: str, document: UploadFile = File(...)):
     # Reading the upload yields; check again before committing the start.
     if session["status"] != "created":
         raise HTTPException(status_code=409, detail="Session already started")
+    # Fail before paid-model dispatch when the single-worker execution pool is full.
+    # Gate-paused analyses still occupy resources and are counted.
+    active = sum(
+        item["status"] in ("running", "awaiting_gate")
+        for item in sessions.values()
+    )
+    if active >= settings.MAX_CONCURRENT_ANALYSES:
+        raise HTTPException(
+            status_code=429,
+            detail="Analysis capacity is full. Try again after an active review finishes.",
+        )
     session["document_text"] = document_text
     session["document_name"] = document.filename
     session["status"] = "running"
