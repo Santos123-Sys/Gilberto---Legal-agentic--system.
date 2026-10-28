@@ -70,6 +70,16 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             'human_review_id': 'test', 'decision': decision,
             'reasoning': 'Please recheck termination.', **extra})
 
+    async def test_post_checkpoints_only_targeted_session(self):
+        unrelated = (await main.create_session(main.SessionCreateRequest(num_rounds=1))).session_id
+        self.engine.master_summaries = [{'parsed': {'final_score': 6, 'final_classification': 'Relevante'}}]
+        self.session['status'] = 'awaiting_feedback'
+        with patch.object(main.session_store, 'save') as save:
+            response = await self.client.post(f'/api/sessions/{self.sid}/accept')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([call.args[0]['id'] for call in save.call_args_list], [self.sid])
+        self.assertIn(unrelated, main.sessions)
+
     async def test_acceptance_requires_finished_review_and_is_idempotent(self):
         for status in ('created', 'running', 'error', 'awaiting_gate', 'awaiting_feedback'):
             self.session['status'] = status
