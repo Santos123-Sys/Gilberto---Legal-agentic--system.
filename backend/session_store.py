@@ -2,6 +2,7 @@
 import json
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 ENGINE_FIELDS = ('current_round', 'cluster_summaries', 'devil_advocate_output',
@@ -22,13 +23,16 @@ def save(session):
     payload = {key: value for key, value in session.items() if key not in ('engine', 'task')}
     payload['engine_state'] = {key: getattr(engine, key) for key in ENGINE_FIELDS}
     payload['engine_state']['gate_records'] = engine.get_all_gate_records()
-    with connect() as db:
-        db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?)',
-                   (session['id'], json.dumps(payload, ensure_ascii=False)))
+    # sqlite3.Connection's context manager commits, but does not close the connection.
+    # Explicitly close after every checkpoint to avoid descriptor and WAL-lock leaks.
+    with closing(connect()) as db:
+        with db:
+            db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?)',
+                       (session['id'], json.dumps(payload, ensure_ascii=False)))
 
 
 def load(session_id, engine_factory):
-    with connect() as db:
+    with closing(connect()) as db:
         row = db.execute('SELECT payload FROM sessions WHERE id = ?', (session_id,)).fetchone()
     if row is None:
         return None
