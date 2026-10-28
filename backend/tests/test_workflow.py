@@ -131,6 +131,18 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIsNone(self.session['task'])
 
+    async def test_active_analysis_limit_fails_before_paid_dispatch(self):
+        second = (await main.create_session(main.SessionCreateRequest(num_rounds=1))).session_id
+        self.session['status'] = 'awaiting_gate'
+        with patch.object(settings, 'MAX_CONCURRENT_ANALYSES', 1):
+            response = await self.client.post(
+                f'/api/sessions/{second}/start',
+                files={'document': ('contract.txt', b'This is a synthetic contract. ' * 5)},
+            )
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(main.sessions[second]['status'], 'created')
+        self.assertIsNone(main.sessions[second]['task'])
+
     async def test_round_jurisdiction_cursor_and_upload_limits(self):
         for body in ({'num_rounds': 0}, {'num_rounds': 4}, {'jurisdiction': 'CH'}):
             self.assertEqual((await self.client.post('/api/sessions', json=body)).status_code, 422)
