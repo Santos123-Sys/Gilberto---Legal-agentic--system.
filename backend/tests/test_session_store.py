@@ -1,7 +1,7 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from engines.debate_engine_v3 import DebateEngineV3
 import session_store
 
@@ -18,3 +18,22 @@ class PersistenceTests(unittest.TestCase):
                 self.assertEqual(restored['status'], 'error' if status in ('running','awaiting_gate') else status)
                 self.assertIsNone(restored['task'])
             self.assertIsNone(session_store.load('missing', DebateEngineV3))
+
+    def test_checkpoint_and_load_close_sqlite_connections(self):
+        import sqlite3
+        raw_connect = sqlite3.connect
+        connections = []
+        def tracked_connect(*args, **kwargs):
+            db = raw_connect(*args, **kwargs)
+            connections.append(db)
+            return db
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, SESSION_DB_PATH=folder+'/audit.sqlite3'), patch.object(session_store.sqlite3, 'connect', side_effect=tracked_connect):
+            engine = DebateEngineV3('tracked',20,1,'general')
+            session = dict(id='tracked', engine=engine, task=None, config=dict(num_agents=20,num_rounds=1,workflow_type='general'), status='completed', events=[], error=None)
+            session_store.save(session)
+            restored = session_store.load('tracked', DebateEngineV3)
+            self.assertEqual(restored['id'], 'tracked')
+            self.assertEqual(len(connections), 2)
+            for db in connections:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    db.execute('SELECT 1')
