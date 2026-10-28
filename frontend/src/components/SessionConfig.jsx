@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Users, RefreshCw, Layers, ChevronRight } from 'lucide-react'
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-const ALLOWED_FILE_TYPES = /\\.(txt|md|pdf|docx)$/i
+const ALLOWED_FILE_TYPES = /\.(txt|md|pdf|docx)$/i
 
 const WORKFLOW_OPTIONS = [
   { value: 'full_analysis', label: 'Full Analysis', description: 'Comprehensive risk, compliance, governance and strategy review' },
