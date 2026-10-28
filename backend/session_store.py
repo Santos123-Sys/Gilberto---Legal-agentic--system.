@@ -4,6 +4,10 @@ import os
 import sqlite3
 from pathlib import Path
 
+class SessionCheckpointError(RuntimeError):
+    """The saved session exists but cannot be safely reconstructed."""
+
+
 ENGINE_FIELDS = ('current_round', 'cluster_summaries', 'devil_advocate_output',
                  'master_summaries', 'feedback_agents', 'execution_metrics')
 
@@ -32,15 +36,18 @@ def load(session_id, engine_factory):
         row = db.execute('SELECT payload FROM sessions WHERE id = ?', (session_id,)).fetchone()
     if row is None:
         return None
-    session = json.loads(row[0])
-    state = session.pop('engine_state')
-    config = session['config']
-    engine = engine_factory(session_id, config['num_agents'], config['num_rounds'], config['workflow_type'])
-    engine.review_depth = config.get("review_depth", "full")
-    for key in ENGINE_FIELDS:
-        setattr(engine, key, state[key])
-    engine.gate_evaluator.gate_records = state['gate_records']
-    engine.gate_evaluator.pending_gates = [g for g in state['gate_records'] if g['status'] == 'pending']
+    try:
+        session = json.loads(row[0])
+        state = session.pop('engine_state')
+        config = session['config']
+        engine = engine_factory(session_id, config['num_agents'], config['num_rounds'], config['workflow_type'])
+        engine.review_depth = config.get("review_depth", "full")
+        for key in ENGINE_FIELDS:
+            setattr(engine, key, state[key])
+        engine.gate_evaluator.gate_records = state['gate_records']
+        engine.gate_evaluator.pending_gates = [g for g in state['gate_records'] if g['status'] == 'pending']
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise SessionCheckpointError("Stored checkpoint cannot be reconstructed") from exc
     session.update(engine=engine, task=None)
     if session['status'] in ('running', 'awaiting_gate'):
         session['status'] = 'error'
