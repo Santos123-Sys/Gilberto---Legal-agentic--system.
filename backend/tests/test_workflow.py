@@ -70,6 +70,15 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             'human_review_id': 'test', 'decision': decision,
             'reasoning': 'Please recheck termination.', **extra})
 
+    async def test_storage_readiness_fails_closed_without_leaking_paths(self):
+        healthy = await self.client.get('/api/ready')
+        self.assertEqual(healthy.status_code, 200)
+        self.assertEqual(healthy.json()['status'], 'ready')
+        with patch.object(main.session_store, 'is_ready', side_effect=OSError('/private/volume/error')):
+            failed = await self.client.get('/api/ready')
+        self.assertEqual(failed.status_code, 503)
+        self.assertNotIn('/private/volume', failed.text)
+
     async def test_acceptance_requires_finished_review_and_is_idempotent(self):
         for status in ('created', 'running', 'error', 'awaiting_gate', 'awaiting_feedback'):
             self.session['status'] = status
