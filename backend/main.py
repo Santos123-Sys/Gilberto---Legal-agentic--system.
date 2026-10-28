@@ -81,8 +81,13 @@ def _get_session(session_id: str) -> dict:
 async def checkpoint_mutations(request: Request, call_next):
     response = await call_next(request)
     if request.method == "POST" and response.status_code < 300:
-        for session in list(sessions.values()):
-            session_store.save(session)
+        # Save only the session addressed by this mutation. Background analysis
+        # checkpoints its own events; POST /api/sessions saves explicitly.
+        segments = request.url.path.strip("/").split("/")
+        if len(segments) == 4 and segments[:2] == ["api", "sessions"]:
+            session = sessions.get(segments[2])
+            if session is not None:
+                session_store.save(session)
     return response
 
 
@@ -222,6 +227,8 @@ async def create_session(request: SessionCreateRequest):
         "feedback_rounds": 0,
     }
 
+    # Persist the new session even when created outside the HTTP middleware.
+    session_store.save(sessions[session_id])
     return SessionResponse(
         session_id=session_id,
         status="created",
