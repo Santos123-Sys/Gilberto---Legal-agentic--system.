@@ -17,6 +17,14 @@ def connect():
     return connection
 
 
+def is_ready() -> bool:
+    """Report readiness only when the checkpoint database is accessible."""
+    from contextlib import closing
+    with closing(connect()) as db:
+        db.execute('SELECT id FROM sessions LIMIT 1').fetchone()
+    return True
+
+
 def save(session):
     engine = session['engine']
     payload = {key: value for key, value in session.items() if key not in ('engine', 'task')}
