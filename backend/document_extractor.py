@@ -2,6 +2,7 @@
 
 from io import BytesIO
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 import re
 from typing import Iterable
 
@@ -18,6 +19,36 @@ class DocumentExtractionError(ValueError):
 
 
 SUPPORTED_EXTENSIONS = {".docx", ".pdf", ".txt", ".md"}
+MAX_DOCX_ARCHIVE_ENTRIES = 1000
+MAX_DOCX_EXPANDED_BYTES = 50 * 1024 * 1024
+MAX_DOCX_SINGLE_ENTRY_BYTES = 20 * 1024 * 1024
+MAX_DOCX_COMPRESSION_RATIO = 1000
+MAX_PDF_PAGES = 250
+MAX_EXTRACTED_CHARACTERS = 2_000_000
+
+
+def _validate_docx_archive(content: bytes) -> None:
+    """Reject zip amplification before python-docx expands the archive."""
+    try:
+        with ZipFile(BytesIO(content)) as archive:
+            entries = archive.infolist()
+            if len(entries) > MAX_DOCX_ARCHIVE_ENTRIES:
+                raise DocumentExtractionError("Word document contains too many archive entries.")
+            total_size = 0
+            for entry in entries:
+                total_size += entry.file_size
+                if (entry.file_size > MAX_DOCX_SINGLE_ENTRY_BYTES or
+                        total_size > MAX_DOCX_EXPANDED_BYTES or
+                        (entry.file_size and entry.file_size / max(entry.compress_size, 1) >
+                         MAX_DOCX_COMPRESSION_RATIO)):
+                    raise DocumentExtractionError(
+                        "Word document exceeds safe decompression limits. Upload a smaller document."
+                    )
+    except (BadZipFile, OSError) as exc:
+        raise DocumentExtractionError(
+            "The Word document could not be opened. Please re-save it as a valid .docx file and upload it again."
+        ) from exc
+
 
 
 def _clean_text(text: str) -> str:
@@ -44,6 +75,7 @@ def _docx_blocks(document: Document) -> Iterable[str]:
 
 
 def _extract_docx(content: bytes) -> str:
+    _validate_docx_archive(content)
     try:
         document = Document(BytesIO(content))
     except Exception as exc:
@@ -73,7 +105,20 @@ def _extract_pdf(content: bytes) -> str:
                 raise DocumentExtractionError(
                     "This PDF is password-protected. Upload an unlocked copy so Gilberto can read it."
                 )
-        pages = [page.extract_text() or "" for page in reader.pages]
+        if len(reader.pages) > MAX_PDF_PAGES:
+            raise DocumentExtractionError(
+                "The PDF has too many pages for one review. Split it into smaller documents."
+            )
+        pages = []
+        total_characters = 0
+        for page in reader.pages:
+            extracted = page.extract_text() or ""
+            total_characters += len(extracted)
+            if total_characters > MAX_EXTRACTED_CHARACTERS:
+                raise DocumentExtractionError(
+                    "The extracted document text is too large for one review. Split it into smaller documents."
+                )
+            pages.append(extracted)
     except DocumentExtractionError:
         raise
     except Exception as exc:
@@ -120,5 +165,9 @@ def extract_document_text(filename: str, content: bytes) -> str:
     if len(text) < 50:
         raise DocumentExtractionError(
             "The extracted document text is too short to analyze. Check the file and upload it again."
+        )
+    if len(text) > MAX_EXTRACTED_CHARACTERS:
+        raise DocumentExtractionError(
+            "The extracted document text is too large for one review. Split it into smaller documents."
         )
     return text
