@@ -18,6 +18,13 @@ def summary(cid='foundation', score=6, confidence=4):
             'key_findings': [], 'risk_flags': [], 'agent_count': 4}}
 
 
+class UploadDependencySecurityTests(unittest.TestCase):
+    def test_multipart_parser_is_on_reviewed_security_baseline(self):
+        from importlib.metadata import version
+        parts = tuple(int(part) for part in version('python-multipart').split('.')[:3])
+        self.assertGreaterEqual(parts, (0, 0, 32))
+
+
 class ScoringTests(unittest.TestCase):
     def test_weighted_median_sorts_by_score_and_applies_weights(self):
         self.assertEqual(weighted_median([(9, 1), (1, 5), (8, 1)]), 1)
