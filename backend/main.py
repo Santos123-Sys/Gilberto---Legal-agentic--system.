@@ -80,6 +80,11 @@ def _get_session(session_id: str) -> dict:
 @app.middleware("http")
 async def checkpoint_mutations(request: Request, call_next):
     response = await call_next(request)
+    if request.url.path.startswith("/api/sessions"):
+        # Legal documents and derived results must not be cached by browsers or proxies.
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Content-Type-Options"] = "nosniff"
     if request.method == "POST" and response.status_code < 300:
         for session in list(sessions.values()):
             session_store.save(session)
