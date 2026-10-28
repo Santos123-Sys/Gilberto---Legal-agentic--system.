@@ -1,5 +1,7 @@
 import unittest
 from io import BytesIO
+from unittest.mock import MagicMock, patch
+from zipfile import ZipFile, ZIP_DEFLATED
 
 from docx import Document
 from pypdf import PdfWriter
@@ -36,6 +38,26 @@ class DocumentExtractorTests(unittest.TestCase):
 
         with self.assertRaisesRegex(DocumentExtractionError, "OCR"):
             extract_document_text("scanned.pdf", buffer.getvalue())
+
+    def test_rejects_compressed_docx_expansion(self):
+        buffer = BytesIO()
+        with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+            archive.writestr("word/document.xml", b"x" * (21 * 1024 * 1024))
+        with self.assertRaisesRegex(DocumentExtractionError, "decompression limits"):
+            extract_document_text("archive.docx", buffer.getvalue())
+
+    def test_rejects_pdf_with_excessive_pages_before_extraction(self):
+        reader = MagicMock()
+        reader.is_encrypted = False
+        reader.pages.__len__.return_value = 251
+        with patch("document_extractor.PdfReader", return_value=reader):
+            with self.assertRaisesRegex(DocumentExtractionError, "too many pages"):
+                extract_document_text("contract.pdf", b"%PDF-placeholder")
+        reader.pages.__iter__.assert_not_called()
+
+    def test_rejects_excessive_plain_text(self):
+        with self.assertRaisesRegex(DocumentExtractionError, "too large"):
+            extract_document_text("huge.txt", b"a" * 2_000_050)
 
     def test_decodes_legacy_portuguese_text(self):
         text = extract_document_text("contract.txt", ("Cláusula de prestação " * 5).encode("cp1252"))
