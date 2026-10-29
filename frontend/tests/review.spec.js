@@ -142,7 +142,8 @@ test('new round does not inherit completed workstream score or status from prior
     { event_id: 2, type: 'CLUSTER_COMPLETE', cluster: 'foundation', summary: { aggregated_score: 9, confidence_aggregate: 4 } },
     { event_id: 3, type: 'ROUND_START', round: 2 },
     { event_id: 4, type: 'AGENT_THINKING', cluster: 'foundation', agent: 'Current-round reviewer' },
-    { event_id: 5, type: 'ERROR', message: 'A current-round workstream failed.' },
+    { event_id: 5, type: 'MASTER_MANAGER_COMPLETE', summary: synthesis },
+    { event_id: 6, type: 'DEBATE_COMPLETE' },
   ])
   await expect(page.getByRole('heading', { name: 'Foundation' })).toBeVisible()
   await expect(page.getByText('Current-round reviewer')).toBeVisible()
