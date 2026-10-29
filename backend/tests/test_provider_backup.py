@@ -93,3 +93,74 @@ class BackupSessionSelectionTests(unittest.IsolatedAsyncioTestCase):
         engine = DebateEngineV3("one", 5, 1, "contract_review", provider_mode="backup")
         self.assertIsInstance(engine.llm, BackupClient)
         self.assertEqual(engine.provider_mode, "backup")
+
+
+class OpenAISolMediumTests(unittest.TestCase):
+    def setUp(self):
+        fixtures = {
+            "FALLBACK_LLM_API_KEY": "synthetic-openai-only-key",
+            "FALLBACK_LLM_BASE_URL": "https://api.openai.com/v1",
+            "FALLBACK_LLM_ALLOWED_HOSTS": "api.openai.com",
+            "FALLBACK_LLM_MODEL": "gpt-6.1-sol",
+            "FALLBACK_LLM_REASONING_EFFORT": "medium",
+            "FALLBACK_LLM_MAX_COMPLETION_TOKENS": 8192,
+        }
+        for name, value in fixtures.items():
+            ctx = patch.object(settings, name, value)
+            ctx.start()
+            self.addCleanup(ctx.stop)
+
+    def test_openai_chat_completion_sends_medium_without_unsupported_parameters(self):
+        self.assertEqual(approved_backup_url(), "https://api.openai.com/v1/chat/completions")
+        response = httpx.Response(200, json={
+            "choices": [{"finish_reason": "stop",
+                         "message": {"content": '{"score": 3}'}}],
+            "usage": {"prompt_tokens": 28, "completion_tokens": 152,
+                      "completion_tokens_details": {"reasoning_tokens": 100}},
+        })
+        with patch("provider.httpx.Client") as client:
+            post = client.return_value.__enter__.return_value.post
+            post.return_value = response
+            answer = BackupClient().call([{"role": "user", "content": "synthetic contract"}])
+            self.assertEqual(answer, '{"score": 3}')
+            post.assert_called_once()
+            self.assertEqual(post.call_args.args[0], approved_backup_url())
+            payload = post.call_args.kwargs["json"]
+            self.assertEqual(payload["model"], "gpt-6.1-sol")
+            self.assertEqual(payload["reasoning_effort"], "medium")
+            self.assertEqual(payload["max_completion_tokens"], 8192)
+            self.assertNotIn("temperature", payload)
+            self.assertNotIn("max_tokens", payload)
+            self.assertNotIn("reasoning", payload)
+            self.assertEqual(post.call_args.kwargs["headers"]["Authorization"],
+                             "Bearer synthetic-openai-only-key")
+
+    def test_sol_must_use_openai_host_even_when_other_host_allowlisted(self):
+        with (patch.object(settings, "FALLBACK_LLM_BASE_URL", "https://proxy.example.test/v1"),
+              patch.object(settings, "FALLBACK_LLM_ALLOWED_HOSTS", "proxy.example.test")):
+            self.assertFalse(backup_configured())
+            with patch("provider.httpx.Client") as client, self.assertRaises(ProviderError):
+                BackupClient().call([{"role": "user", "content": "synthetic"}])
+                client.assert_not_called()
+
+    def test_invalid_reasoning_effort_is_refused_before_network(self):
+        for effort in ("none", "minimal", "extreme", ""):
+            with self.subTest(effort=effort), patch.object(settings, "FALLBACK_LLM_REASONING_EFFORT", effort):
+                self.assertFalse(backup_configured())
+                with patch("provider.httpx.Client") as client:
+                    with self.assertRaises(ProviderError):
+                        BackupClient().call([])
+                    client.assert_not_called()
+
+    def test_sol_truncated_due_to_reasoning_budget_is_not_certified(self):
+        with patch("provider.httpx.Client") as client:
+            post = client.return_value.__enter__.return_value.post
+            post.return_value = httpx.Response(200, json={
+                "choices": [{"finish_reason": "length",
+                             "message": {"content": ""}}],
+                "usage": {"prompt_tokens": 28, "completion_tokens": 8192}
+            })
+            with self.assertRaises(ProviderError) as raised:
+                BackupClient().call([{"role": "user", "content": "synthetic"}])
+            self.assertEqual(raised.exception.code, "truncated")
+            post.assert_called_once()

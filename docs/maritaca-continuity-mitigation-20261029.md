@@ -19,3 +19,32 @@ Scope: Brazilian law only. A failing Maritaca review must NEVER be marked comple
 - Verify model choice survives a checkpoint reload; no secrets in its stored config or logs.
 - Both staging CI and consented synthetic-only live inference must pass before production routing is enabled.
 - Real backup provider credentials and approved hostname have **not** been provisioned by this PR. Availability cannot be claimed.
+
+## Approved OpenAI backup model configuration
+
+Official model: `gpt-6.1-sol`; **medium** reasoning via Chat Completions `reasoning_effort`.
+Unlike Maritaca, this OpenAI request omits `temperature` and legacy `max_tokens` and
+uses `max_completion_tokens`, including hidden reasoning tokens in that budget.
+
+Railway **staging** backend non-secret variables:
+- `FALLBACK_LLM_BASE_URL=https://api.openai.com/v1`
+- `FALLBACK_LLM_ALLOWED_HOSTS=api.openai.com`
+- `FALLBACK_LLM_MODEL=gpt-6.1-sol`
+- `FALLBACK_LLM_REASONING_EFFORT=medium`
+- `FALLBACK_LLM_MAX_COMPLETION_TOKENS=8192`
+- `FALLBACK_LLM_INPUT_PRICE_USD_PER_1M=2`
+- `FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M=10`
+
+**Credential intentionally not provided:** `FALLBACK_LLM_API_KEY` must be set as a
+secret on the *staging backend*, from an OpenAI **API Platform** account with
+`gpt-6.1-sol` enabled. A ChatGPT subscription is not an API key or an authorization
+to bill an API project. Do not paste the key into GitHub, browser JS, chat or logs.
+Until it is set, the backup-provider selector remains disabled (fail closed).
+These prices represent the officially published standard uncached input/output
+baseline on 29 October 2026, **not** a guaranteed invoice rate: cached input,
+regional processing, service tier and long-context surcharges may differ.
+
+Start with synthetic Brazilian legal text only; verify model access, returned JSON,
+duration, prompt/completion usage, actual billing, owner consent and SSE audit
+on live staging. Do not interpret the presence of Railway variables as proof
+that OpenAI inference works or as permission to send confidential material.
