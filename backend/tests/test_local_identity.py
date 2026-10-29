@@ -146,6 +146,35 @@ class LocalIdentityAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get("/api/sessions/" + sid + "/status")).status_code, 401)
         self.assertEqual((await self.client.get("/api/auth/me")).status_code, 401)
 
+    async def test_session_revoked_between_sse_authentication_and_dispatch_leaks_no_events(self):
+        self.assertEqual((await self.login()).status_code, 200)
+        created = await self.client.post("/api/sessions", json={"num_rounds": 1},
+                                         headers=self.origin)
+        self.assertEqual(created.status_code, 200, created.text)
+        sid = created.json()["session_id"]
+        main.sessions[sid]["events"] = [{"event_id": 1, "type": "AGENT_ANALYSIS_COMPLETE",
+                                         "content": "confidential-synthetic-fixture"}]
+        main.sessions[sid]["status"] = "completed"
+        token = self.client.cookies.get(local_identity.COOKIE_NAME)
+        current = local_identity.resolve_session(token)
+        self.assertIsNotNone(current)
+        # The dependency accepted the cookie, but it is revoked before the
+        # streaming generator can serialize any confidential event.
+        with patch.object(local_identity, "resolve_session", side_effect=[current, None]) as check:
+            streamed = await self.client.get(f"/api/sessions/{sid}/stream?cursor=0")
+        self.assertEqual(streamed.status_code, 200, streamed.text)
+        self.assertNotIn("confidential-synthetic-fixture", streamed.text)
+        self.assertEqual(check.call_count, 2)
+
+    async def test_non_admin_cannot_invoke_backup_or_enumerate_users(self):
+        self.assertEqual((await self.login()).status_code, 200)
+        self.assertEqual((await self.client.get("/api/admin/users")).status_code, 403)
+        self.assertEqual((await self.client.get("/api/admin/backups/status")).status_code, 403)
+        self.assertEqual((await self.client.post("/api/admin/backups/run",
+                                                headers=self.origin)).status_code, 403)
+        self.assertEqual((await self.client.post("/api/admin/backups/verify",
+                                                headers=self.origin)).status_code, 403)
+
     async def test_proxy_secret_and_csrf_origin_are_required(self):
         denied = await self.client.post("/api/auth/login",
             json={"email": "a@example.com", "password": "Strong!Password-2026A"},
