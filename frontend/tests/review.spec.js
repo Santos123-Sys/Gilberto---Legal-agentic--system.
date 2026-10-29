@@ -65,6 +65,7 @@ test('resolving one of two same-number gates leaves the other visible', async ({
   await page.getByLabel('EXPERT REASONING').first().fill('Reviewed the clause against the source.')
   await page.getByRole('button', { name: 'Submit Decision' }).first().click()
   await expect(page.getByRole('heading', { name: 'Gate 1: Low Confidence Review' })).toHaveCount(1)
+  await expect(page.getByRole('alert')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
