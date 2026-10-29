@@ -145,7 +145,7 @@ test('new round does not inherit completed workstream score or status from prior
     { event_id: 5, type: 'MASTER_MANAGER_COMPLETE', summary: synthesis },
     { event_id: 6, type: 'DEBATE_COMPLETE' },
   ])
-  await expect(page.getByRole('heading', { name: 'Foundation' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Foundation' }).last()).toBeVisible()
   await expect(page.getByText('Current-round reviewer')).toBeVisible()
   await expect(page.getByText('9.0', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
