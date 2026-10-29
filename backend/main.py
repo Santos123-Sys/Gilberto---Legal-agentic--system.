@@ -520,7 +520,9 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
     config["max_feedback_rounds"] = settings.MAX_FEEDBACK_ROUNDS
     config["model_call_budget"] = settings.MAX_MODEL_CALLS
     config["cost_preflight"] = estimate_plan(
-        config["initial_model_calls"], settings.MAX_TOKENS,
+        config["initial_model_calls"],
+        (settings.FALLBACK_LLM_MAX_COMPLETION_TOKENS if request.provider_mode == "backup" and settings.FALLBACK_LLM_MODEL == "gpt-6.1-sol"
+         else settings.MAX_TOKENS),
         input_usd_per_million=(settings.FALLBACK_LLM_INPUT_PRICE_USD_PER_1M if request.provider_mode == "backup"
                                else settings.LLM_INPUT_PRICE_USD_PER_1M),
         output_usd_per_million=(settings.FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M if request.provider_mode == "backup"
