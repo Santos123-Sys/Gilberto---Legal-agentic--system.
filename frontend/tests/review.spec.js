@@ -150,3 +150,20 @@ test('new round does not inherit completed workstream score or status from prior
   await expect(page.getByText('9.0', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('out of sequence progress cannot fabricate a complete review or lose a gate', async ({ page }) => {
+  const errors = await setup(page)
+  await emit(page, [{ event_id: 2, type: 'GATE_TRIGGERED', gate_id: 'missing-first', gate_number: 1,
+    trigger: { description: 'Approval needed' } }])
+  await expect(page.getByRole('alert')).toContainText('Progress history is incomplete')
+  await expect(page.getByRole('heading', { name: 'Gate 1: Low Confidence Review' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.testStreams.length)).toBe(2)
+  await emit(page, [
+    { event_id: 1, type: 'DEBATE_START', active_clusters: ['foundation'] },
+    { event_id: 2, type: 'GATE_TRIGGERED', gate_id: 'missing-first', gate_number: 1,
+      trigger: { description: 'Approval needed' } },
+  ])
+  await expect(page.getByRole('heading', { name: 'Gate 1: Low Confidence Review' })).toHaveCount(1)
+  expect(errors).toEqual([])
+})

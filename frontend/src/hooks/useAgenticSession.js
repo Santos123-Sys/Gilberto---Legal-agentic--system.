@@ -188,7 +188,18 @@ export function useAgenticSession() {
       if (eventSourceRef.current !== es) return
       try {
         const event = JSON.parse(msg.data)
-        if (event.event_id && event.event_id <= cursorRef.current) return
+        if (event.type !== 'STREAM_END') {
+          // Do not silently skip an event: missing gate approvals and execution
+          // failures are consequential, so reconnect from the last known ID.
+          if (!Number.isSafeInteger(event.event_id) || event.event_id < 1 ||
+              event.event_id > cursorRef.current + 1) {
+            es.close()
+            setConnectionState('disconnected')
+            setError('Progress history is incomplete. Reconnect to synchronize with the server.')
+            return
+          }
+          if (event.event_id <= cursorRef.current) return
+        }
         if (event.type !== 'STREAM_END') {
           setEvents(prev => [...prev, event])
           setLastEventAt(event.timestamp || new Date().toISOString())
