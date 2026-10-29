@@ -243,6 +243,57 @@ def restore_to_isolated_directory(encrypted, destination, *, key=None):
         name: manifest["databases"][name]["rows"] for name in DATABASES}}
 
 
+
+def _backup_gateway_origin():
+    url=os.environ.get("BACKUP_GATEWAY_URL","")
+    if not url: return None
+    p=urlparse(url)
+    if p.scheme!="https" or not p.hostname or p.username or p.password or p.query or p.fragment or p.path not in ("","/"):
+        raise BackupError("Backup gateway URL must be a trusted HTTPS origin")
+    return url.rstrip("/")
+
+def _backup_gateway_headers(sha=None):
+    value=os.environ.get("BACKUP_GATEWAY_SECRET","")
+    if len(value)<48: raise BackupError("Backup gateway secret missing")
+    headers={"X-Gilberto-Backup-Key":value}
+    if sha is not None: headers["X-Gilberto-Cipher-SHA256"]=sha
+    return headers
+
+def _backup_gateway_client():
+    import httpx
+    return httpx.Client(timeout=httpx.Timeout(90,connect=10),follow_redirects=False)
+
+def _gateway_upload(src,sha):
+    origin=_backup_gateway_origin()
+    with _backup_gateway_client() as client:
+        with open(src,"rb") as fd:
+            result=client.post(origin+"/v1/backups",headers=_backup_gateway_headers(sha),content=fd)
+    if result.status_code!=201:
+        raise BackupError("Encrypted backup relay rejected the upload")
+    response=result.json()
+    if response.get("sha256")!=sha or not isinstance(response.get("object"),str):
+        raise BackupError("Backup relay receipt invalid")
+    return response["object"]
+
+def _gateway_download(obj_key,destination):
+    prefix=os.environ.get("BACKUP_S3_PREFIX","gilberto/staging").strip("/")+"/"
+    if not obj_key.startswith(prefix) or ".." in obj_key or not obj_key.endswith(".glbk"):
+        raise BackupError("Invalid backup object namespace")
+    name=obj_key.rsplit("/",1)[-1]
+    if "/" in name: raise BackupError("Invalid backup object name")
+    with _backup_gateway_client() as client:
+        with client.stream("GET",_backup_gateway_origin()+"/v1/backups/"+name,
+                           headers=_backup_gateway_headers()) as response:
+            if response.status_code!=200:
+                raise BackupError("Encrypted backup relay rejected the download")
+            total=0
+            with open(destination,"xb") as fd:
+                for block in response.iter_bytes(chunk_size=CHUNK):
+                    total+=len(block)
+                    if total>128*1024*1024: raise BackupError("Backup is too large")
+                    fd.write(block)
+
+
 def _s3_client():
     # boto3 is an established, SigV4-supporting client. Never use public ACLs.
     import boto3
@@ -267,7 +318,8 @@ def _s3_client():
 
 def backup_to_s3():
     key = key_from_env()
-    bucket = os.environ.get("BACKUP_S3_BUCKET")
+    gateway = _backup_gateway_origin()
+    bucket = "backup-gateway" if gateway else os.environ.get("BACKUP_S3_BUCKET")
     if not bucket:
         raise BackupError("Backup destination not configured")
     prefix = os.environ.get("BACKUP_S3_PREFIX", "gilberto/staging").strip("/")
@@ -276,25 +328,31 @@ def backup_to_s3():
     with tempfile.TemporaryDirectory(prefix="gilberto-upload-") as temp:
         output = Path(temp) / "encrypted.glbk"
         summary = create_encrypted_backup(output, key=key)
-        client = _s3_client()
-        with open(output, "rb") as file:
-            client.upload_fileobj(file, bucket, obj_key,
-                                  ExtraArgs={"ContentType": "application/octet-stream",
-                                             "Metadata": {"sha256": summary["sha256"]}})
+        if gateway:
+            obj_key = _gateway_upload(output, summary["sha256"])
+        else:
+            client = _s3_client()
+            with open(output, "rb") as file:
+                client.upload_fileobj(file, bucket, obj_key,
+                                      ExtraArgs={"ContentType": "application/octet-stream",
+                                                 "Metadata": {"sha256": summary["sha256"]}})
     return {"bucket": bucket, "object": obj_key,
             "sha256": summary["sha256"], "rows": summary["rows"]}
 
 
 def download_and_verify_s3(obj_key, isolated_dir):
+    gateway = _backup_gateway_origin()
     bucket = os.environ.get("BACKUP_S3_BUCKET")
-    if not bucket:
+    if not gateway and not bucket:
         raise BackupError("Backup destination not configured")
     if not obj_key or ".." in obj_key or not obj_key.endswith(".glbk"):
         raise BackupError("Invalid backup object name")
     with tempfile.TemporaryDirectory(prefix="gilberto-download-") as temp:
         encrypted = Path(temp) / "download.glbk"
-        client = _s3_client()
-        client.download_file(bucket, obj_key, str(encrypted))
+        if gateway:
+            _gateway_download(obj_key, encrypted)
+        else:
+            _s3_client().download_file(bucket, obj_key, str(encrypted))
         return restore_to_isolated_directory(encrypted, isolated_dir)
 
 
