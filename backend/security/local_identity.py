@@ -21,6 +21,12 @@ from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 COOKIE_NAME = "__Host-gilberto_session"
+DEV_COOKIE_NAME = "gilberto_dev_session"
+
+
+def cookie_name(secure=True):
+    # Browsers prohibit __Host- cookies without Secure; HTTP is loopback-only.
+    return COOKIE_NAME if secure else DEV_COOKIE_NAME
 LOCAL_ISSUER = "urn:gilberto:local:v1"
 SESSION_TTL = 8 * 3600
 IDLE_TTL = 30 * 60
