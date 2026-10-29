@@ -8,6 +8,7 @@ import { GateReviewPanel } from './components/GateReviewPanel'
 import { SynthesisDashboard } from './components/SynthesisDashboard'
 import { AuditTrail } from './components/AuditTrail'
 import { AgenticProgress } from './components/AgenticProgress'
+import { AgentReviewConsole } from './components/AgentReviewConsole'
 import { useAgenticSession } from './hooks/useAgenticSession'
 
 // ─────────────────────────────────────────────
@@ -96,6 +97,13 @@ export default function App() {
             />
           </div>
 
+          {session.status === 'running' && (
+            <button type="button" onClick={() => session.setDispatchPaused(session.runControl !== 'pause_requested')}
+              className="rounded-lg border border-blue-500/60 px-3 py-2 text-sm text-blue-300"
+              aria-label={session.runControl === 'pause_requested' ? 'Resume agent dispatch' : 'Pause agent dispatch'}>
+              {session.runControl === 'pause_requested' ? 'Resume dispatch' : 'Pause new requests'}
+            </button>
+          )}
           {['running', 'awaiting_gate'].includes(session.status) && (
             <button type="button" onClick={session.cancelAnalysis}
               className="rounded-lg border border-yellow-500/60 px-3 py-2 text-sm text-yellow-300">
@@ -206,6 +214,19 @@ export default function App() {
               onReconnect={session.reconnect}
               status={session.status}
             />
+          </div>
+        )}
+
+        {session.status === 'running' && session.runControl === 'pause_requested' && (
+          <section role="status" className="mb-6 rounded-lg border border-blue-500/50 bg-blue-500/5 p-4 text-sm text-slate-200">
+            New AI dispatch is paused. Any request already sent to the model may finish or incur charges. Resume dispatch to continue, or cancel to stop orchestration.
+          </section>
+        )}
+
+        {['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error', 'cancelled'].includes(session.status) && (
+          <div className="my-6">
+            <AgentReviewConsole events={session.events} humanVotes={session.humanVotes}
+              status={session.status} onVote={session.castHumanVote} />
           </div>
         )}
 
