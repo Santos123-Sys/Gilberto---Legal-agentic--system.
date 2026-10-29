@@ -192,6 +192,7 @@ def login(email, password, remote_address):
             if not verified or not user or user["active"] != 1:
                 _record_failure(db, email_key, now)
                 _record_failure(db, remote_key, now)
+                db.commit()  # Preserve rate-limit state despite the rejected login.
                 raise LoginRejected()
             if PASSWORD_HASHER.check_needs_rehash(user["password_hash"]):
                 db.execute("UPDATE identity_users SET password_hash=? WHERE id=?",
