@@ -110,7 +110,7 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
       {/* Decision buttons */}
       <div className="mb-4">
         <h4 className="text-xs font-medium text-slate-400 mb-2">YOUR DECISION</h4>
-        <div className="grid grid-cols-3 gap-2">
+        <div role="group" aria-label="Review decision" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <DecisionButton
             selected={decision === 'approve'}
             onClick={() => setDecision('approve')}
@@ -188,6 +188,8 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
 function DecisionButton({ selected, onClick, icon, label, color }) {
   return (
     <button
+      type="button"
+      aria-pressed={selected}
       onClick={onClick}
       className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all ${
         selected
