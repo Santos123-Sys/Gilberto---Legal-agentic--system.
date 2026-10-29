@@ -67,16 +67,16 @@ class LocalAuthReadinessTests(unittest.IsolatedAsyncioTestCase):
             ("http://attacker.example.test", False),
         )
         for origin, secure in bad:
-            with self.subTest(origin=origin, secure=secure), \\
-                 patch.object(settings, "LOCAL_AUTH_APP_ORIGIN", origin), \\
-                 patch.object(settings, "LOCAL_AUTH_COOKIE_SECURE", secure):
+            with (self.subTest(origin=origin, secure=secure),
+                  patch.object(settings, "LOCAL_AUTH_APP_ORIGIN", origin),
+                  patch.object(settings, "LOCAL_AUTH_COOKIE_SECURE", secure)):
                 self.assertEqual((await self.client.get("/api/ready")).status_code, 503)
                 self.assertEqual((await self.client.get("/api/auth/me",
                     headers={"X-Gilberto-Proxy-Auth": "X" * 48})).status_code, 503)
 
     async def test_http_loopback_is_allowed_only_for_development(self):
-        with patch.object(settings, "LOCAL_AUTH_APP_ORIGIN", "http://127.0.0.1:5173"), \\
-             patch.object(settings, "LOCAL_AUTH_COOKIE_SECURE", False):
+        with (patch.object(settings, "LOCAL_AUTH_APP_ORIGIN", "http://127.0.0.1:5173"),
+              patch.object(settings, "LOCAL_AUTH_COOKIE_SECURE", False)):
             response = await self.client.get("/api/ready")
         self.assertEqual(response.status_code, 200, response.text)
 
