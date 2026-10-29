@@ -134,3 +134,18 @@ test('unsupported file extension is rejected before analysis', async ({ page }) 
   await expect(page.getByRole('alert')).toContainText('Unsupported file type')
   await expect(page.getByRole('button', { name: 'Start Debate' })).toBeDisabled()
 })
+
+test('new round does not inherit completed workstream score or status from prior round', async ({ page }) => {
+  const errors = await setup(page)
+  await emit(page, [
+    { event_id: 1, type: 'ROUND_START', round: 1 },
+    { event_id: 2, type: 'CLUSTER_COMPLETE', cluster: 'foundation', summary: { aggregated_score: 9, confidence_aggregate: 4 } },
+    { event_id: 3, type: 'ROUND_START', round: 2 },
+    { event_id: 4, type: 'AGENT_THINKING', cluster: 'foundation', agent: 'Current-round reviewer' },
+    { event_id: 5, type: 'ERROR', message: 'A current-round workstream failed.' },
+  ])
+  await expect(page.getByRole('heading', { name: 'Foundation' })).toBeVisible()
+  await expect(page.getByText('Current-round reviewer')).toBeVisible()
+  await expect(page.getByText('9.0', { exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})

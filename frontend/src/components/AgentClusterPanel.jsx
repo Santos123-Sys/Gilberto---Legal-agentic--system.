@@ -9,6 +9,13 @@ const CLUSTER_CONFIG = {
   strategy: { name: 'Strategy', icon: '♟️', color: '#ec4899' },
 }
 
+// A completed result from a previous round or revision must not mark the
+// current execution as complete. Keep historical events in the audit trail.
+function currentExecutionEvents(events) {
+  const index = events.findLastIndex(event => event.type === 'ROUND_START' || event.type === 'FEEDBACK_RECEIVED')
+  return index < 0 ? events : events.slice(index)
+}
+
 function getClusterStatus(clusterId, events) {
   const clusterEvents = events.filter(e => e.cluster === clusterId)
   if (clusterEvents.some(e => e.type === 'CLUSTER_COMPLETE')) return 'complete'
@@ -55,19 +62,20 @@ const STATUS_CONFIG = {
 }
 
 export function AgentClusterPanel({ events }) {
+  const activeEvents = useMemo(() => currentExecutionEvents(events), [events])
   const clusters = useMemo(() => {
     return Object.entries(CLUSTER_CONFIG).map(([id, config]) => ({
       id,
       ...config,
-      status: getClusterStatus(id, events),
-      score: getClusterScore(id, events),
-      confidence: getClusterConfidence(id, events),
-      agents: getAgentStatuses(id, events),
+      status: getClusterStatus(id, activeEvents),
+      score: getClusterScore(id, activeEvents),
+      confidence: getClusterConfidence(id, activeEvents),
+      agents: getAgentStatuses(id, activeEvents),
     }))
-  }, [events])
+  }, [activeEvents])
 
-  const daEvent = events.find(e => e.type === 'DEVILS_ADVOCATE_COMPLETE')
-  const daStatus = events.some(e => e.type === 'DEVILS_ADVOCATE_START')
+  const daEvent = activeEvents.find(e => e.type === 'DEVILS_ADVOCATE_COMPLETE')
+  const daStatus = activeEvents.some(e => e.type === 'DEVILS_ADVOCATE_START')
     ? daEvent ? 'complete' : 'running'
     : 'pending'
 
