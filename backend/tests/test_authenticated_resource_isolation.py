@@ -65,6 +65,7 @@ class AuthenticatedResourceIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def test_unowned_legacy_and_cross_user_are_hidden(self):
         other_headers = self.authorization(self.other)
         own_headers = self.authorization(self.owner)
+        self.session["status"] = "completed"  # SSE must reach its terminal frame.
         for route in ("status", "results", "gates", "stream?cursor=0"):
             own = await self.client.get(f"/api/sessions/{self.sid}/{route}", headers=own_headers)
             self.assertEqual(own.status_code, 200, route)
