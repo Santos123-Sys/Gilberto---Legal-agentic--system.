@@ -204,3 +204,15 @@ test('acceptance requires a second explicit decision and can be dismissed', asyn
   await expect(page.getByRole('heading', { name: 'Analysis Accepted' })).toBeVisible()
   expect(acceptanceCalls).toBe(1)
 })
+
+test('legal draft presents an inspectable manual evidence verification checklist', async ({ page }) => {
+  const errors = await setup(page)
+  await emit(page, [
+    { event_id: 1, type: 'MASTER_MANAGER_COMPLETE', summary: synthesis },
+    { event_id: 2, type: 'DEBATE_COMPLETE' },
+  ])
+  await page.getByText('Evidence verification checklist (manual)').click()
+  await expect(page.getByText('Locate each quoted contract clause', { exact: false })).toBeVisible()
+  await expect(page.getByText('These checks are not performed or certified', { exact: false })).toBeVisible()
+  expect(errors).toEqual([])
+})
