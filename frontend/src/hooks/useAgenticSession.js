@@ -40,7 +40,7 @@ function apiErrorMessage(detail, fallback) {
 
 function statusFromServer(status) {
   if (status === 'created') return 'preview'
-  if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(status)) return status
+  if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error', 'cancelled', 'cancellation_requested'].includes(status)) return status
   return 'error'
 }
 
@@ -284,6 +284,14 @@ export function useAgenticSession() {
             setStatus('awaiting_feedback')
             break
 
+          case 'CANCEL_REQUESTED':
+            setStatus('cancellation_requested')
+            break
+
+          case 'CANCELLED':
+            setStatus('cancelled')
+            break
+
           case 'ERROR':
             setError(event.message)
             setStatus('error')
@@ -451,6 +459,24 @@ export function useAgenticSession() {
     }
   }, [sessionId])
 
+  const cancelAnalysis = useCallback(async () => {
+    if (!sessionId) return false
+    try {
+      const response = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/cancel`, { method: 'POST' })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${response.status}`))
+      }
+      const result = await response.json()
+      setStatus(result.status)
+      setError(null)
+      return true
+    } catch (error) {
+      setError(`Cancellation failed: ${error.message}`)
+      return false
+    }
+  }, [sessionId])
+
   const reset = useCallback(() => {
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
     reconnectTimerRef.current = null
@@ -504,6 +530,7 @@ export function useAgenticSession() {
     submitGateDecision,
     submitFeedback,
     acceptResult,
+    cancelAnalysis,
     reset,
     setShowIntentPreview,
   }

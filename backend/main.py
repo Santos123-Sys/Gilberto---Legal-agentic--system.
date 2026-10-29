@@ -178,6 +178,13 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                 session["feedback_rounds"] += 1
                 session["status"] = "running"
                 feedback = str(exc)
+    except asyncio.CancelledError:
+        session["status"] = "cancelled"
+        session["error"] = None
+        _append_event(session, {"type": "CANCELLED",
+                                "message": "Orchestration stopped. An in-flight provider call may still finish.",
+                                "timestamp": datetime.now().isoformat()})
+        raise
     except Exception as exc:
         # Do not expose provider payloads or contract excerpts in operational errors.
         session["status"] = "error"
@@ -359,7 +366,7 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
                 yield f"id: {idx + 1}\ndata: {json.dumps(events[idx])}\n\n"
                 idx += 1
 
-            if session["status"] in ("completed", "error"):
+            if session["status"] in ("completed", "error", "cancelled"):
                 yield f"data: {json.dumps({'type': 'STREAM_END', 'timestamp': datetime.now().isoformat()})}\n\n"
                 break
 
@@ -523,6 +530,40 @@ async def submit_feedback(session_id: str, request: FeedbackRequest, principal: 
         "session_id": session_id,
         "message": "Feedback routed to appropriate cluster. Re-analysis in progress.",
     }
+
+
+def _finish_cancel(session):
+    if session["status"] != "cancellation_requested":
+        return
+    session["status"] = "cancelled"
+    session["error"] = None
+    _append_event(session, {"type": "CANCELLED",
+                            "message": "Orchestration stopped. An in-flight provider call may still finish.",
+                            "timestamp": datetime.now().isoformat()})
+    session_store.save(session)
+
+
+@app.post("/api/sessions/{session_id}/cancel")
+async def cancel_session(session_id: str, principal: Principal = Depends(current_principal)):
+    """Stop new dispatch. Cannot undo or forcibly terminate an in-flight thread."""
+    session = _get_session(session_id, principal)
+    if session["status"] in ("cancelled", "cancellation_requested"):
+        return {"status": session["status"], "provider_in_flight_possible": True}
+    if session["status"] not in ("created", "running", "awaiting_gate"):
+        raise HTTPException(status_code=409, detail="This review cannot be cancelled in its current state")
+    session["engine"]._provider_aborted = True
+    session["status"] = "cancellation_requested"
+    _append_event(session, {"type": "CANCEL_REQUESTED",
+                            "message": "Stopping new model and tool dispatch",
+                            "timestamp": datetime.now().isoformat()})
+    session_store.save(session)
+    task = session.get("task")
+    if task and not task.done():
+        task.add_done_callback(lambda _: _finish_cancel(session))
+        task.cancel()
+    else:
+        _finish_cancel(session)
+    return {"status": session["status"], "provider_in_flight_possible": True}
 
 
 @app.post("/api/sessions/{session_id}/accept")

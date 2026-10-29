@@ -64,7 +64,8 @@ function currentRoundEvents(events) {
 }
 
 export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, connectionState, lastEventAt, onReconnect, status = 'running' }) {
-  const stopped = status === 'error'
+  const stopped = status === 'error' || status === 'cancelled'
+  const stopping = status === 'cancellation_requested'
   const activeEvents = currentRoundEvents(events)
   const currentStage = deriveStage(activeEvents)
   const roundCount = Math.max(1, Number(totalRounds) || 1)
@@ -89,7 +90,7 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-gold-400">Live analysis</p>
             <p className="sr-only" role="status">{stopped ? 'Analysis stopped' : STAGES[currentStage].label}</p>
-            <h2 className="font-display text-2xl text-slate-100 mt-1">{stopped ? 'Analysis stopped — review incomplete' : 'Your legal teams are working'}</h2>
+            <h2 className="font-display text-2xl text-slate-100 mt-1">{stopping ? 'Cancellation requested — stopping work' : stopped ? 'Analysis stopped — review incomplete' : 'Your legal teams are working'}</h2>
             <p className="text-sm text-slate-400 mt-2 max-w-2xl">{stopped ? 'Only previously received findings are shown. This is not an accepted or fully verified legal analysis.' : 'Follow the meaningful stages of the debate here. The final analysis and any review requests will appear in this workspace.'}</p>
           </div>
           <div className="rounded-xl border border-slate-700/70 bg-slate-900/60 px-4 py-3 min-w-44">
