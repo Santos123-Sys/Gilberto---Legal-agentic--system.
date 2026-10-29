@@ -1,5 +1,6 @@
 """Bounded Maritaca chat completion transport. Never logs credentials or payloads."""
 import httpx
+import threading
 from config import settings
 
 
@@ -10,6 +11,33 @@ class ProviderError(RuntimeError):
 
 
 class MaritacaClient:
+    def __init__(self):
+        self._usage_lock = threading.Lock()
+        self._token_counters = {"prompt_tokens": 0, "completion_tokens": 0,
+                                "reported_calls": 0, "unreported_calls": 0}
+
+    def usage_snapshot(self):
+        """Provider-supplied metering, not an invoice or exact price."""
+        with self._usage_lock:
+            return {**self._token_counters, "kind": "provider_reported_when_available"}
+
+    def _record_usage(self, body):
+        source = body.get("usage") if isinstance(body, dict) else None
+        if not isinstance(source, dict):
+            with self._usage_lock:
+                self._token_counters["unreported_calls"] += 1
+            return
+        a, b = source.get("prompt_tokens"), source.get("completion_tokens")
+        if (not isinstance(a, int) or isinstance(a, bool) or a < 0
+                or not isinstance(b, int) or isinstance(b, bool) or b < 0):
+            with self._usage_lock:
+                self._token_counters["unreported_calls"] += 1
+            return
+        with self._usage_lock:
+            self._token_counters["prompt_tokens"] += a
+            self._token_counters["completion_tokens"] += b
+            self._token_counters["reported_calls"] += 1
+
     def call(self, messages):
         if not settings.MARITACA_API_KEY.strip():
             raise ProviderError('missing_key', 'Configure MARITACA_API_KEY in Railway before starting analysis.')
@@ -44,4 +72,5 @@ class MaritacaClient:
                 raise ValueError()
         except (KeyError, IndexError, ValueError, TypeError):
             raise ProviderError('invalid_response', 'Maritaca returned an unreadable response; no completed review was certified.') from None
+        self._record_usage(body)
         return content

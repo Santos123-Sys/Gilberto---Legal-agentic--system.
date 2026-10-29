@@ -422,6 +422,7 @@ class DebateEngineV3:
                 raise
             finally:
                 task_trace["execution_ms"] = round((time.monotonic() - execution_started) * 1000, 1)
+                self.execution_metrics["provider_usage"] = self.llm.usage_snapshot()
 
     # ── Cluster execution (single cluster) ───
 
