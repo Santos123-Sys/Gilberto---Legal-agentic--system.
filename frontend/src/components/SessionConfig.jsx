@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { authorizedFetch } from '../auth/client'
 import { Users, RefreshCw, Layers, ChevronRight } from 'lucide-react'
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -18,6 +19,18 @@ export function SessionConfig({ onStart, loading }) {
   const [file, setFile] = useState(null)
   const [fileError, setFileError] = useState('')
   const [dragging, setDragging] = useState(false)
+  const [backupConfigured, setBackupConfigured] = useState(false)
+  const [providerMode, setProviderMode] = useState('primary')
+  const [backupConsent, setBackupConsent] = useState(false)
+  useEffect(() => {
+    let active = true
+    const base = import.meta.env.VITE_AUTH_MODE === 'local' ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    authorizedFetch(`${base}/api/health`).then(response => response.ok ? response.json() : null)
+      .then(data => { if (active) setBackupConfigured(data?.backup_provider?.configured === true) })
+      .catch(() => { if (active) setBackupConfigured(false) })
+    return () => { active = false }
+  }, [])
+
 
   const selectFile = (candidate) => {
     if (!candidate) return
@@ -41,7 +54,9 @@ export function SessionConfig({ onStart, loading }) {
 
   const handleSubmit = () => {
     if (!file) return
-    onStart({ numRounds, workflowType, reviewDepth }, file)
+    if (providerMode === 'backup' && (!backupConfigured || !backupConsent)) return
+    onStart({ numRounds, workflowType, reviewDepth, providerMode,
+              backupConsent: providerMode === 'backup' && backupConsent }, file)
   }
 
   const AGENT_ROLES_PREVIEW = [
@@ -98,6 +113,23 @@ export function SessionConfig({ onStart, loading }) {
             </select>
             <p className="text-sm text-slate-400">Both cover the five configured workstreams. Focused drafts use one reviewer per workstream and have less independent scrutiny. Call counts shown assume all five workstreams are enabled; the next screen shows the actual plan.</p>
           </div>
+          {/* Explicit legal-document transfer consent for alternate inference. */}
+          <fieldset className="card p-5 space-y-3">
+            <legend className="text-sm font-medium text-gold-400 px-1">AI provider and continuity</legend>
+            <label htmlFor="provider-mode" className="text-xs text-slate-300 block">Inference destination</label>
+            <select id="provider-mode" aria-label="Inference provider" value={providerMode}
+              onChange={event => { setProviderMode(event.target.value); setBackupConsent(false) }}
+              className="w-full bg-slate-800 text-slate-200 rounded p-3">
+              <option value="primary">Maritaca (primary)</option>
+              {backupConfigured && <option value="backup">Operator-approved backup provider</option>}
+            </select>
+            {!backupConfigured && <p className="text-xs text-slate-400">No approved backup endpoint is configured. Maritaca failures stop dispatch and retain saved findings.</p>}
+            {providerMode === 'backup' && <label className="flex items-start gap-2 text-sm text-slate-300">
+              <input type="checkbox" checked={backupConsent} onChange={event => setBackupConsent(event.target.checked)} aria-label="Authorize backup provider transfer" className="mt-1" />
+              I authorize this legal document and its derived prompts to be processed by the operator-approved backup AI provider. I understand this starts a separate review and may incur additional charges.
+            </label>}
+            <p className="text-xs text-amber-300">No silent automatic fallback or retry occurs after an uncertain provider response. An incomplete review is never certified as complete.</p>
+          </fieldset>
           {/* Round count */}
           <div className="card p-5 space-y-3">
             <label className="flex items-center gap-2 text-sm font-medium text-gold-400">
@@ -175,7 +207,7 @@ export function SessionConfig({ onStart, loading }) {
           {/* Start button */}
           <button
             onClick={handleSubmit}
-            disabled={!file || loading}
+            disabled={!file || loading || (providerMode === 'backup' && (!backupConfigured || !backupConsent))}
             className="w-full py-4 rounded-xl font-semibold text-sm tracking-wide transition-all duration-200 flex items-center justify-center gap-2
               disabled:opacity-40 disabled:cursor-not-allowed
               enabled:bg-gold-500 enabled:text-slate-950 enabled:hover:bg-gold-400 enabled:active:scale-95"
