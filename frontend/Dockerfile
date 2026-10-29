@@ -22,6 +22,8 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # nginx:alpine renders /etc/nginx/templates/*.template via envsubst at startup,
 # so nginx listens on Railway's $PORT
 COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY 05-gilberto-private-dns.envsh /docker-entrypoint.d/05-gilberto-private-dns.envsh
+RUN chmod 755 /docker-entrypoint.d/05-gilberto-private-dns.envsh
 
 ENV PORT=80
 # Safe unavailable-by-default upstream; set both values at Railway runtime.
