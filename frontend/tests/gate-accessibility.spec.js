@@ -33,5 +33,5 @@ test('gate choice exposes selected state to assistive technology and reflows on 
   await override.click()
   await expect(override).toHaveAttribute('aria-pressed', 'true')
   await expect(approve).toHaveAttribute('aria-pressed', 'false')
-  await expect(page.locator('html')).not.toHaveJSProperty('scrollWidth', 5000)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
 })
