@@ -35,6 +35,7 @@ from hmac import compare_digest
 from urllib.parse import urlparse
 
 from config import settings
+from financial.planning import estimate_plan
 import session_store
 from provider import ProviderError
 from document_extractor import DocumentExtractionError, extract_document_text
@@ -467,6 +468,12 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
     config["initial_model_calls"] = sum((2 * c["agents"] + 1) if c["agents"] > 1 else 2 for c in config["active_clusters"]) * request.num_rounds + 2 * request.num_rounds
     config["max_feedback_rounds"] = settings.MAX_FEEDBACK_ROUNDS
     config["model_call_budget"] = settings.MAX_MODEL_CALLS
+    config["cost_preflight"] = estimate_plan(
+        config["initial_model_calls"], settings.MAX_TOKENS,
+        input_usd_per_million=settings.LLM_INPUT_PRICE_USD_PER_1M,
+        output_usd_per_million=settings.LLM_OUTPUT_PRICE_USD_PER_1M,
+        hard_cap_usd=settings.MAX_REVIEW_ESTIMATED_USD,
+    )
     if not active:
         raise HTTPException(status_code=503, detail="No specialist workstreams are configured")
 
