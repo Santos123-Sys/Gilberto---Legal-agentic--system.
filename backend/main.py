@@ -878,7 +878,8 @@ async def cast_human_vote(session_id: str, request: HumanVoteRequest,
         "effect": "advisory_only_not_an_agent_vote",
     }
     votes.append(record)
-    _append_event(session, {"type": "HUMAN_VOTE_RECORDED", **record})
+    _append_event(session, {"type": "HUMAN_VOTE_RECORDED", **record,
+                            "target_event_id": request.event_id})
     session_store.save(session)
     return {"status": "recorded", "vote": record}
 
