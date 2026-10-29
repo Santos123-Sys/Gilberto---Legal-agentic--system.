@@ -44,3 +44,9 @@ Harvey promotes regional legal knowledge sources: https://help.harvey.ai/topics/
 - **Harvey knowledge sources**, https://help.harvey.ai/topics/knowledge-sources — vendor-published jurisdiction-specific research integration. **Lexis+ Protégé**, https://www.lexisnexis.com/en-us/products/lexis-plus-protege/legal-research.page — vendor describes linked legal research and Shepard's citations. Neither is an independently measured comparison with Gilberto in Brazilian legal workflows.
 
 A credible comparative study must use an agreed Brazilian-law evaluation date, independently retrieved permitted legal texts, a frozen held-out set, blind expert scoring, matched model budgets and public reporting of unsuccessful/uncertain outputs. Product materials and general legal NLP classification leaderboards are not substitute evidence.
+
+## Concurrent production change (2026-10-29)
+
+During this staging release, separate PR #70 introduced a narrow Maritaca provider error-classification update into production main (`3e1c85f376635d2b39d5fbd71b61443430ff816a`). That change is **not** the Brazilian-law audit release and it does not include its security or legal-evidence feature branch. Check Railway live production service deployment status separately. The historical production SHA `18f61dae...` cited above is therefore a **pre-PR-#70 baseline**, not necessarily the current production SHA.
+
+The staging legal-audit branch also incorporates compatible provider diagnostics from PR #71, merged concurrently with #69. This follow-up adds **push CI to the staging branch** and repeatable live smoke checks to validate the exact combined source tree rather than only separately green constituent PRs.
