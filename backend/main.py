@@ -21,10 +21,12 @@ import asyncio
 from copy import deepcopy
 import json
 import uuid
+from functools import lru_cache
+from time import time
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -35,6 +37,9 @@ from document_extractor import DocumentExtractionError, extract_document_text
 from engines.debate_engine_v3 import DebateEngineV3, ReanalysisRequested, WorkflowError
 from scoring import classification_for
 from agents.cluster_definitions import CLUSTERS
+from security.oidc import (Principal, AuthenticationRejected, IdentityNotConfigured,
+                           build_jwks_resolver, verify_access_token)
+from security.authorization import AccessDenied, require_session_owner
 from models.schemas import (
     FeedbackRequest,
     GateDecisionRequest,
@@ -67,7 +72,28 @@ app.add_middleware(
 sessions: Dict[str, dict] = {}
 
 
-def _get_session(session_id: str) -> dict:
+@lru_cache(maxsize=8)
+def _trusted_key_resolver(issuer: str, audience: str, jwks_url: str):
+    return build_jwks_resolver(jwks_url, issuer=issuer, audience=audience)
+
+
+def current_principal(request: Request) -> Principal:
+    """Fail-closed bearer validation for every resource API, without query tokens."""
+    issuer, audience, keys = settings.OIDC_ISSUER, settings.OIDC_AUDIENCE, settings.OIDC_JWKS_URL
+    if not issuer or not audience or not keys:
+        raise HTTPException(status_code=503, detail="Authentication is not configured")
+    try:
+        return verify_access_token(request.headers.get("Authorization"), issuer=issuer,
+                                  audience=audience,
+                                  signing_key_resolver=_trusted_key_resolver(issuer, audience, keys))
+    except IdentityNotConfigured:
+        raise HTTPException(status_code=503, detail="Authentication is not configured") from None
+    except AuthenticationRejected:
+        raise HTTPException(status_code=401, detail="Authentication required",
+                            headers={"WWW-Authenticate": "Bearer"}) from None
+
+
+def _get_session(session_id: str, principal: Principal) -> dict:
     if session_id not in sessions:
         try:
             recovered = session_store.load(session_id, DebateEngineV3)
@@ -79,6 +105,10 @@ def _get_session(session_id: str) -> dict:
             sessions[session_id] = recovered
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        require_session_owner(principal, sessions[session_id])
+    except AccessDenied:
+        raise HTTPException(status_code=404, detail="Session not found") from None
     return sessions[session_id]
 
 
@@ -148,6 +178,14 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                 session["feedback_rounds"] += 1
                 session["status"] = "running"
                 feedback = str(exc)
+    except asyncio.CancelledError:
+        session["status"] = "cancelled"
+        session["error"] = None
+        session.get("cancellation", {}).update(state="confirmed")
+        _append_event(session, {"type": "CANCELLED",
+                                "message": "Orchestration stopped. An in-flight provider call may still finish.",
+                                "timestamp": datetime.now().isoformat()})
+        raise
     except Exception as exc:
         # Do not expose provider payloads or contract excerpts in operational errors.
         session["status"] = "error"
@@ -204,7 +242,7 @@ async def ready():
 
 
 @app.post("/api/sessions", response_model=SessionResponse)
-async def create_session(request: SessionCreateRequest):
+async def create_session(request: SessionCreateRequest, principal: Principal = Depends(current_principal)):
     """Create a new debate session with specified configuration."""
     if request.num_rounds > settings.MAX_ROUNDS:
         raise HTTPException(status_code=422, detail="Requested rounds exceed the configured limit")
@@ -219,7 +257,7 @@ async def create_session(request: SessionCreateRequest):
     )
 
     engine.review_depth = request.review_depth
-    config = request.model_dump()
+    config = request.model_dump(exclude={'user_id'})
     active = [cid for cid in engine.feedback_agents if cid in settings.active_clusters_list]
     config["active_clusters"] = [{"id": cid, "name": CLUSTERS[cid]["name"],
                                   "agents": 1 if request.review_depth == "focused" else len(CLUSTERS[cid]["agents"])} for cid in active]
@@ -232,6 +270,8 @@ async def create_session(request: SessionCreateRequest):
 
     sessions[session_id] = {
         "id": session_id,
+        "owner_issuer": principal.issuer,
+        "owner_subject": principal.subject,
         "engine": engine,
         "status": "created",
         "created_at": datetime.now().isoformat(),
@@ -258,9 +298,10 @@ async def create_session(request: SessionCreateRequest):
 
 
 @app.post("/api/sessions/{session_id}/start")
-async def start_session(session_id: str, document: UploadFile = File(...)):
+async def start_session(session_id: str, document: UploadFile = File(...),
+                        principal: Principal = Depends(current_principal)):
     """Upload the legal document and start the debate."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
 
     if session["status"] != "created":
         raise HTTPException(status_code=400, detail="Session already started")
@@ -305,9 +346,10 @@ async def start_session(session_id: str, document: UploadFile = File(...)):
 
 
 @app.get("/api/sessions/{session_id}/stream")
-async def stream_events(session_id: str, request: Request, cursor: int = Query(default=0, ge=0)):
+async def stream_events(session_id: str, request: Request, cursor: int = Query(default=0, ge=0),
+                        principal: Principal = Depends(current_principal)):
     """Server-Sent Events stream with cursor-based resume."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     if cursor > len(session["events"]):
         raise HTTPException(status_code=409, detail="Event cursor exceeds session history")
 
@@ -317,13 +359,15 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
 
         heartbeat_at = asyncio.get_running_loop().time()
         while not await request.is_disconnected():
+            if principal.expires_at is not None and time() >= principal.expires_at:
+                break
             events = session["events"]
 
             while idx < len(events):
                 yield f"id: {idx + 1}\ndata: {json.dumps(events[idx])}\n\n"
                 idx += 1
 
-            if session["status"] in ("completed", "error"):
+            if session["status"] in ("completed", "error", "cancelled"):
                 yield f"data: {json.dumps({'type': 'STREAM_END', 'timestamp': datetime.now().isoformat()})}\n\n"
                 break
 
@@ -344,9 +388,9 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
 
 
 @app.get("/api/sessions/{session_id}/status")
-async def get_status(session_id: str):
+async def get_status(session_id: str, principal: Principal = Depends(current_principal)):
     """Get current session status."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     return {
         "session_id": session_id,
         "status": session["status"],
@@ -363,9 +407,9 @@ async def get_status(session_id: str):
 
 
 @app.get("/api/sessions/{session_id}/results")
-async def get_results(session_id: str):
+async def get_results(session_id: str, principal: Principal = Depends(current_principal)):
     """Get full analysis results."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     engine: DebateEngineV3 = session["engine"]
 
     return {
@@ -387,9 +431,9 @@ async def get_results(session_id: str):
 
 
 @app.get("/api/sessions/{session_id}/gates")
-async def get_gates(session_id: str):
+async def get_gates(session_id: str, principal: Principal = Depends(current_principal)):
     """Get pending and resolved gates."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     engine: DebateEngineV3 = session["engine"]
 
     return {
@@ -400,9 +444,9 @@ async def get_gates(session_id: str):
 
 
 @app.post("/api/sessions/{session_id}/gate-decision")
-async def submit_gate_decision(session_id: str, request: GateDecisionRequest):
+async def submit_gate_decision(session_id: str, request: GateDecisionRequest, principal: Principal = Depends(current_principal)):
     """Submit human expert decision for a gate."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     engine: DebateEngineV3 = session["engine"]
 
     if request.session_id != session_id:
@@ -426,7 +470,7 @@ async def submit_gate_decision(session_id: str, request: GateDecisionRequest):
     result = engine.submit_gate_decision(
         gate_number=request.gate_number, gate_id=gate_id,
         decision=request.decision.value, reasoning=request.reasoning,
-        human_review_id=request.human_review_id, override_score=request.override_score,
+        human_review_id=principal.subject, override_score=request.override_score,
         override_classification=request.override_classification.value if request.override_classification else None,
     )
     if result is None:
@@ -440,7 +484,7 @@ async def submit_gate_decision(session_id: str, request: GateDecisionRequest):
         synthesis.update(final_score=request.override_score,
                          final_classification=classification_for(request.override_score),
                          human_override={"gate_id": gate_id, "reasoning": request.reasoning,
-                                         "reviewer": request.human_review_id})
+                                         "reviewer": principal.subject})
     if (request.decision.value == "override" and request.override_score >= 8
             and settings.GATE_3_ALWAYS_FOR_CRITICO
             and not any(g["gate_number"] == 3 and g.get("round") == engine.current_round
@@ -468,9 +512,9 @@ async def submit_gate_decision(session_id: str, request: GateDecisionRequest):
 
 
 @app.post("/api/sessions/{session_id}/feedback")
-async def submit_feedback(session_id: str, request: FeedbackRequest):
+async def submit_feedback(session_id: str, request: FeedbackRequest, principal: Principal = Depends(current_principal)):
     """Submit user feedback to trigger cluster re-analysis."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
 
     if session["status"] != "awaiting_feedback" or (session["task"] and not session["task"].done()):
         raise HTTPException(status_code=400, detail="Session is not awaiting feedback")
@@ -489,10 +533,51 @@ async def submit_feedback(session_id: str, request: FeedbackRequest):
     }
 
 
+def _finish_cancel(session):
+    if session["status"] != "cancellation_requested":
+        return
+    session["status"] = "cancelled"
+    session["error"] = None
+    session.get("cancellation", {}).update(state="confirmed")
+    _append_event(session, {"type": "CANCELLED",
+                            "message": "Orchestration stopped. An in-flight provider call may still finish.",
+                            "timestamp": datetime.now().isoformat()})
+    session_store.save(session)
+
+
+@app.post("/api/sessions/{session_id}/cancel")
+async def cancel_session(session_id: str, principal: Principal = Depends(current_principal)):
+    """Stop new dispatch. Cannot undo or forcibly terminate an in-flight thread."""
+    session = _get_session(session_id, principal)
+    if session["status"] in ("cancelled", "cancellation_requested"):
+        return {"status": session["status"], "provider_in_flight_possible": True}
+    if session["status"] not in ("created", "running", "awaiting_gate"):
+        raise HTTPException(status_code=409, detail="This review cannot be cancelled in its current state")
+    session["engine"]._provider_aborted = True
+    session["status"] = "cancellation_requested"
+    session["cancellation"] = {
+        "requested_by_issuer": principal.issuer,
+        "requested_by_subject": principal.subject,
+        "requested_at": datetime.now().isoformat(),
+        "state": "requested",
+    }
+    _append_event(session, {"type": "CANCEL_REQUESTED",
+                            "message": "Stopping new model and tool dispatch",
+                            "timestamp": datetime.now().isoformat()})
+    session_store.save(session)
+    task = session.get("task")
+    if task and not task.done():
+        task.add_done_callback(lambda _: _finish_cancel(session))
+        task.cancel()
+    else:
+        _finish_cancel(session)
+    return {"status": session["status"], "provider_in_flight_possible": True}
+
+
 @app.post("/api/sessions/{session_id}/accept")
-async def accept_result(session_id: str):
+async def accept_result(session_id: str, principal: Principal = Depends(current_principal)):
     """Mark the session as complete."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     if session["status"] == "completed":
         return {"status": "completed", "session_id": session_id}
     if (session["status"] != "awaiting_feedback" or session["pending_gates"]
