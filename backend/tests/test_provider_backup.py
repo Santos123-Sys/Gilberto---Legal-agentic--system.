@@ -68,10 +68,10 @@ class BackupProviderSafetyTests(unittest.TestCase):
 class BackupSessionSelectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_fallback_without_separate_owner_consent_and_configuration(self):
         p = main.Principal("https://issuer.example.test", "owner")
-        with patch.object(settings, "FALLBACK_LLM_BASE_URL", "https://llm.example.test/v1"), \
-             patch.object(settings, "FALLBACK_LLM_ALLOWED_HOSTS", "llm.example.test"), \
-             patch.object(settings, "FALLBACK_LLM_MODEL", "approved"), \
-             patch.object(settings, "FALLBACK_LLM_API_KEY", "private"):
+        with (patch.object(settings, "FALLBACK_LLM_BASE_URL", "https://llm.example.test/v1"),
+              patch.object(settings, "FALLBACK_LLM_ALLOWED_HOSTS", "llm.example.test"),
+              patch.object(settings, "FALLBACK_LLM_MODEL", "approved"),
+              patch.object(settings, "FALLBACK_LLM_API_KEY", "private")):
             with self.assertRaises(main.HTTPException) as denied:
                 await main.create_session(SessionCreateRequest(provider_mode="backup"), p)
             self.assertEqual(denied.exception.status_code, 422)
