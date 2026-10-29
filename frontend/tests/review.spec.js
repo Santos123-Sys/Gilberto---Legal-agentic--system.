@@ -110,3 +110,27 @@ test('review depth choice is sent to the server and the actual call plan is visi
   expect((await request).postDataJSON().review_depth).toBe('focused')
   expect(errors).toEqual([])
 })
+
+test('oversized file is rejected before session creation', async ({ page }) => {
+  let created = 0
+  await page.route('**/api/sessions', route => {
+    created += 1
+    return route.fulfill({ json: { session_id: 'unexpected' } })
+  })
+  await page.goto('/')
+  await page.locator('#doc-upload').setInputFiles({
+    name: 'large.txt', mimeType: 'text/plain', buffer: Buffer.alloc(10 * 1024 * 1024 + 1, 'a'),
+  })
+  await expect(page.getByRole('alert')).toContainText('10 MB upload limit')
+  await expect(page.getByRole('button', { name: 'Start Debate' })).toBeDisabled()
+  expect(created).toBe(0)
+})
+
+test('unsupported file extension is rejected before analysis', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('#doc-upload').setInputFiles({
+    name: 'script.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('fake file'),
+  })
+  await expect(page.getByRole('alert')).toContainText('Unsupported file type')
+  await expect(page.getByRole('button', { name: 'Start Debate' })).toBeDisabled()
+})

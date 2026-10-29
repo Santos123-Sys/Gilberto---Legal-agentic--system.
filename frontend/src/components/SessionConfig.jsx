@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { Users, RefreshCw, Layers, ChevronRight } from 'lucide-react'
 
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+const ALLOWED_FILE_TYPES = /\.(txt|md|pdf|docx)$/i
+
 const WORKFLOW_OPTIONS = [
   { value: 'full_analysis', label: 'Full Analysis', description: 'Comprehensive risk, compliance, governance and strategy review' },
   { value: 'contract_review', label: 'Contract Review', description: 'Detailed clause-by-clause contract analysis' },
@@ -13,13 +16,27 @@ export function SessionConfig({ onStart, loading }) {
   const [numRounds, setNumRounds] = useState(1)
   const [workflowType, setWorkflowType] = useState('full_analysis')
   const [file, setFile] = useState(null)
+  const [fileError, setFileError] = useState('')
   const [dragging, setDragging] = useState(false)
+
+  const selectFile = (candidate) => {
+    if (!candidate) return
+    if (!ALLOWED_FILE_TYPES.test(candidate.name || '')) {
+      setFile(null)
+      setFileError('Unsupported file type. Select a .txt, .md, .pdf, or .docx document.')
+    } else if (candidate.size > MAX_UPLOAD_BYTES) {
+      setFile(null)
+      setFileError('Document exceeds the 10 MB upload limit. Select a smaller file.')
+    } else {
+      setFile(candidate)
+      setFileError('')
+    }
+  }
 
   const handleDrop = (e) => {
     e.preventDefault()
     setDragging(false)
-    const f = e.dataTransfer.files[0]
-    if (f) setFile(f)
+    selectFile(e.dataTransfer.files[0])
   }
 
   const handleSubmit = () => {
@@ -112,9 +129,9 @@ export function SessionConfig({ onStart, loading }) {
             <input
               type="file"
               id="doc-upload"
-              accept=".txt,.pdf,.docx"
+              accept=".txt,.md,.pdf,.docx"
               className="sr-only"
-              onChange={(e) => setFile(e.target.files[0])}
+              onChange={(e) => selectFile(e.target.files[0])}
             />
             <label htmlFor="doc-upload" tabIndex={0} role="button" onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('doc-upload').click() } }} className="cursor-pointer text-center space-y-3">
               <div className="text-4xl">{file ? '📄' : '📁'}</div>
@@ -131,6 +148,8 @@ export function SessionConfig({ onStart, loading }) {
               )}
             </label>
           </div>
+
+          {fileError && <p role="alert" className="text-red-400 text-sm">{fileError}</p>}
 
           {/* Agent lineup preview */}
           <div className="card p-5 space-y-3">
