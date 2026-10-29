@@ -37,3 +37,13 @@ class PersistenceTests(unittest.TestCase):
             for db in connections:
                 with self.assertRaises(sqlite3.ProgrammingError):
                     db.execute('SELECT 1')
+
+    def test_corrupt_checkpoint_is_retained_and_rejected(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, SESSION_DB_PATH=folder+'/sessions.db'):
+            with session_store.connect() as db:
+                db.execute('INSERT INTO sessions VALUES (?, ?)', ('broken', '{invalid JSON'))
+            with self.assertRaises(session_store.SessionCheckpointError):
+                session_store.load('broken', DebateEngineV3)
+            with session_store.connect() as db:
+                stored = db.execute('SELECT payload FROM sessions WHERE id = ?', ('broken',)).fetchone()
+            self.assertEqual(stored[0], '{invalid JSON')

@@ -138,6 +138,13 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIsNone(self.session['task'])
 
+    async def test_corrupted_checkpoint_returns_safe_service_error(self):
+        with patch.object(main.session_store, 'load', side_effect=main.session_store.SessionCheckpointError('private content /data/path')):
+            response = await self.client.get('/api/sessions/unknown/status')
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn('private content', response.text)
+        self.assertNotIn('/data/path', response.text)
+
     async def test_round_jurisdiction_cursor_and_upload_limits(self):
         for body in ({'num_rounds': 0}, {'num_rounds': 4}, {'jurisdiction': 'CH'}):
             self.assertEqual((await self.client.post('/api/sessions', json=body)).status_code, 422)
