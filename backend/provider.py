@@ -139,6 +139,14 @@ def approved_backup_url():
     # Explicit hostname validation also forbids host aliases and local domains.
     if host.lower() in ("localhost",) or host.lower().endswith((".localhost", ".local", ".internal")):
         return None
+    if settings.FALLBACK_LLM_MODEL == "gpt-6.1-sol":
+        # The selected GPT-6.1 Sol API model is approved only on OpenAI's
+        # official endpoint, regardless of any extra operator allowlist hosts.
+        if host.lower() != "api.openai.com":
+            return None
+        if settings.FALLBACK_LLM_REASONING_EFFORT not in (
+                "low", "medium", "high", "xhigh", "max"):
+            return None
     return raw.rstrip("/") + "/chat/completions"
 
 
@@ -155,11 +163,22 @@ class BackupClient(MaritacaClient):
                                 "No approved backup model is configured for this workspace.")
         try:
             with httpx.Client(timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS, follow_redirects=False) as client:
+                payload = {"model": settings.FALLBACK_LLM_MODEL, "messages": messages}
+                if settings.FALLBACK_LLM_MODEL == "gpt-6.1-sol":
+                    # OpenAI Chat Completions requires reasoning_effort (not
+                    # Responses' reasoning.effort), max_completion_tokens and
+                    # omitting temperature for a reasoning-enabled request.
+                    payload.update(
+                        reasoning_effort=settings.FALLBACK_LLM_REASONING_EFFORT,
+                        max_completion_tokens=settings.FALLBACK_LLM_MAX_COMPLETION_TOKENS,
+                    )
+                else:
+                    payload.update(temperature=settings.TEMPERATURE,
+                                   max_tokens=settings.MAX_TOKENS)
                 response = client.post(url, headers={
                     "Authorization": "Bearer " + settings.FALLBACK_LLM_API_KEY.strip(),
                     "Content-Type": "application/json",
-                }, json={"model": settings.FALLBACK_LLM_MODEL, "messages": messages,
-                         "temperature": settings.TEMPERATURE, "max_tokens": settings.MAX_TOKENS})
+                }, json=payload)
         except httpx.TimeoutException:
             raise ProviderError("timeout",
                                 "Backup inference timed out. Completion and billing are uncertain; no retry was sent.") from None
