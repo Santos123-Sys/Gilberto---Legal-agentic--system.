@@ -297,6 +297,8 @@ class DebateEngineV3:
             "model_calls": 0,
             "model_tasks": [],
             "estimated_input_tokens": 0,
+            "reserved_upper_bound_usd": 0.0,
+            "cost_measurement": "estimated worst-case reservation, not billed costs",
         }
 
         # LLM
@@ -380,6 +382,21 @@ class DebateEngineV3:
                     raise WorkflowError("Provider execution stopped after a timeout")
                 if self.execution_metrics["model_calls"] >= settings.MAX_MODEL_CALLS:
                     raise WorkflowError("Model-call budget reached; partial findings remain available")
+                # Reserve conservative upper-bound output BEFORE paid dispatch.
+                # Does not claim actual provider billing or exact tokenizer size.
+                hard_cap = settings.MAX_REVIEW_ESTIMATED_USD
+                input_price = settings.LLM_INPUT_PRICE_USD_PER_1M
+                output_price = settings.LLM_OUTPUT_PRICE_USD_PER_1M
+                if hard_cap > 0:
+                    if input_price <= 0 or output_price <= 0:
+                        raise WorkflowError("Cost cap configured without both model price rates; refusing paid dispatch")
+                    reservation = (
+                        estimated_input_tokens * input_price
+                        + settings.MAX_TOKENS * output_price
+                    ) / 1_000_000
+                    if self.execution_metrics["reserved_upper_bound_usd"] + reservation > hard_cap:
+                        raise WorkflowError("Per-review estimated cost ceiling reached; no further model requests sent")
+                    self.execution_metrics["reserved_upper_bound_usd"] += reservation
                 self.execution_metrics["model_calls"] += 1
                 started_at = time.monotonic()
                 self._llm_input_reservations.append(

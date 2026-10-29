@@ -76,6 +76,11 @@ class Settings(BaseSettings):
 
     MAX_CONCURRENT_ANALYSES: int = Field(default=2, ge=1, le=20)
     MAX_MODEL_CALLS: int = Field(default=250, ge=1, le=1000)
+    # Explicit US-dollar budget and published/configured rates. Zero means
+    # price not configured; do not invent a price or claim cost observability.
+    MAX_REVIEW_ESTIMATED_USD: float = Field(default=0.0, ge=0, le=1000000)
+    LLM_INPUT_PRICE_USD_PER_1M: float = Field(default=0.0, ge=0, le=1000000)
+    LLM_OUTPUT_PRICE_USD_PER_1M: float = Field(default=0.0, ge=0, le=1000000)
     MAX_FEEDBACK_ROUNDS: int = Field(default=2, ge=0, le=5)
     LLM_REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0, le=600)
     MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024
