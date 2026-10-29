@@ -35,6 +35,7 @@ from provider import MaritacaClient, ProviderError
 from config import settings
 from scoring import aggregate_clusters, weighted_median
 from legal.claims import assess_agent_claims
+from legal.assurance import synthesis_assurance
 from models.schemas import AgentAnalysis, ClusterSummary, DevilAdvocateOutput, MasterSynthesis
 
 
@@ -286,6 +287,7 @@ class DebateEngineV3:
         self.devil_advocate_output: Optional[Dict] = None
         self.master_summaries: List[Dict] = []
         self.feedback_agents: Dict[str, List[Dict]] = {k: [] for k in CLUSTERS}
+        self._legal_evidence_audits = []
         self.gate_evaluator = GateEvaluator()
         self.execution_metrics: Dict[str, Any] = {
             "total_latency_ms": 0,
@@ -478,6 +480,7 @@ class DebateEngineV3:
             raw = await self._run_agent(agent_cfg, prompt)
             parsed = AgentAnalysis.model_validate(_safe_json(raw)).model_dump(mode="json")
             parsed["evidence_audit"] = assess_agent_claims(parsed, document_text)
+            self._legal_evidence_audits.append(parsed["evidence_audit"])
 
             analysis = {
                 "agent": agent_cfg["role"],
@@ -627,6 +630,7 @@ class DebateEngineV3:
         raw = await self._run_agent(MASTER_MANAGER, prompt)
         parsed = MasterSynthesis.model_validate(_safe_json(raw)).model_dump(mode="json")
         parsed.update(aggregate_clusters(self.cluster_summaries))
+        parsed["legal_assurance"] = synthesis_assurance(self._legal_evidence_audits)
         parsed["devil_advocate"] = self.devil_advocate_output["parsed"] if self.devil_advocate_output else None
 
         master_summary = {"raw": raw, "parsed": parsed}
