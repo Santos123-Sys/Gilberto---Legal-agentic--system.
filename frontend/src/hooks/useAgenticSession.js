@@ -196,6 +196,15 @@ export function useAgenticSession() {
         }
 
         switch (event.type) {
+          // A new round invalidates previous-round *current* scores and
+          // synthesis. The immutable event history stays available in AuditTrail.
+          case 'ROUND_START':
+          case 'FEEDBACK_RECEIVED':
+            setClusterResults({})
+            setDevilAdvocate(null)
+            setFinalSynthesis(null)
+            break
+
           case 'CLUSTER_COMPLETE':
             setClusterResults(prev => ({
               ...prev,
