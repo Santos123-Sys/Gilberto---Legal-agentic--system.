@@ -34,6 +34,7 @@ from provider import MaritacaClient, ProviderError
 
 from config import settings
 from scoring import aggregate_clusters, weighted_median
+from legal.claims import assess_agent_claims
 from models.schemas import AgentAnalysis, ClusterSummary, DevilAdvocateOutput, MasterSynthesis
 
 
@@ -476,6 +477,7 @@ class DebateEngineV3:
             prompt = f"Selected workflow: {self.workflow_type}.\n" + prompt
             raw = await self._run_agent(agent_cfg, prompt)
             parsed = AgentAnalysis.model_validate(_safe_json(raw)).model_dump(mode="json")
+            parsed["evidence_audit"] = assess_agent_claims(parsed, document_text)
 
             analysis = {
                 "agent": agent_cfg["role"],
