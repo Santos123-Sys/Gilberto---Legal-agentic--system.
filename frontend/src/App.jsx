@@ -136,6 +136,14 @@ export default function App() {
           </div>
         )}
 
+        {isError && session.config?.provider_mode !== 'backup' && (
+          <section className="card border border-amber-500/30 p-4 mb-6 space-y-2" aria-label="Maritaca continuity options">
+            <h2 className="text-base text-amber-300 font-medium">Provider failure recovery</h2>
+            <p className="text-sm text-slate-300">A request might have completed or incurred charges even if its response was lost. Gilberto will not silently retry or transfer legal material to another AI vendor.</p>
+            <p className="text-sm text-slate-300">To use an operator-approved backup model, select New Analysis, choose the backup inference destination, consent to the additional document transfer and upload the source again. Partial findings remain incomplete and must be reviewed.</p>
+          </section>
+        )}
+
         {isError && Object.keys(session.clusterResults).length > 0 && (
           <section className="card p-5 mb-6 space-y-4" aria-label="Retained specialist findings">
             <h2 className="font-display text-xl text-yellow-300">Partial findings — incomplete review</h2>
