@@ -28,10 +28,10 @@ export function AuthGate({ children }) {
     </main>
   )
   return <>
+    {children}
     <div className="fixed right-2 bottom-2 z-[100]">
       <button type="button" className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200"
         onClick={() => { logout(); setStatus('unauthenticated') }}>Sign out</button>
     </div>
-    {children}
   </>
 }
