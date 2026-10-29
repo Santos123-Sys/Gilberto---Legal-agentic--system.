@@ -69,7 +69,12 @@ sessions: Dict[str, dict] = {}
 
 def _get_session(session_id: str) -> dict:
     if session_id not in sessions:
-        recovered = session_store.load(session_id, DebateEngineV3)
+        try:
+            recovered = session_store.load(session_id, DebateEngineV3)
+        except session_store.SessionCheckpointError as exc:
+            # Preserve the damaged record for forensic recovery; never expose raw
+            # checkpoint content, storage paths or internal traces to the client.
+            raise HTTPException(status_code=503, detail="Saved review checkpoint is unavailable.") from exc
         if recovered is not None:
             sessions[session_id] = recovered
     if session_id not in sessions:
