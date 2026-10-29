@@ -102,6 +102,9 @@ async function exchangeCode() {
   validUntil = Date.now() + seconds * 1000 - 30_000
 }
 
+// React StrictMode replays effects after the callback URL is scrubbed.
+export function hasPendingCallback() { return callbackPromise !== null }
+
 export function finishLogin() {
   if (!callbackPromise) callbackPromise = exchangeCode()
   return callbackPromise

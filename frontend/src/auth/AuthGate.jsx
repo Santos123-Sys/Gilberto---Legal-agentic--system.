@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { finishLogin, hasAccessToken, isAuthConfigured, logout, startLogin } from './oidc'
+import { finishLogin, hasPendingCallback, hasAccessToken, isAuthConfigured, logout, startLogin } from './oidc'
 
 /** No legal workspace is mounted before a token is obtained via PKCE. */
 export function AuthGate({ children }) {
@@ -8,7 +8,7 @@ export function AuthGate({ children }) {
   useEffect(() => {
     let active = true
     const callback = new URL(location.href).searchParams
-    if (callback.has('code') || callback.has('state') || callback.has('error')) {
+    if (callback.has('code') || callback.has('state') || callback.has('error') || hasPendingCallback()) {
       finishLogin().then(() => { if (active) setStatus('authenticated') })
         .catch(error => { if (active) { setMessage(error.message); setStatus('error') } })
     } else setStatus(hasAccessToken() ? 'authenticated' : 'unauthenticated')
