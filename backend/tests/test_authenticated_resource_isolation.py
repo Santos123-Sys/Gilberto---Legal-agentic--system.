@@ -104,7 +104,6 @@ class AuthenticatedResourceIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("user_id", obj["config"])
 
     async def test_reviewer_identity_derives_from_token(self):
-        from gates.human_feedback import GateEvaluator
         record = self.session["engine"].gate_evaluator.record_trigger(
             {"gate_number": 1, "affected_cluster": "foundation"})
         self.session["pending_gates"] = [record["gate_id"]]
