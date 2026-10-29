@@ -61,7 +61,11 @@ export const test = base.extend({
         const signIn = page.getByRole('button', { name: 'Sign in', exact: true })
         await expect(signIn).toBeVisible()
         await signIn.click()
-        await expect(page.locator('#doc-upload')).toBeVisible()
+        try {
+          await expect(page.locator('#doc-upload')).toBeVisible({ timeout: 5000 })
+        } catch {
+          throw new Error('Synthetic OIDC callback failed: ' + (await page.locator('body').innerText()).slice(0, 700))
+        }
       }
       return result
     }
