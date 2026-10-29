@@ -23,6 +23,7 @@ import tempfile
 from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.exceptions import InvalidTag
 
 MAGIC = b"GILBERTO-BACKUP-1\n"
 AAD = b"Gilberto identity and legal checkpoint backup format 1"
@@ -148,7 +149,7 @@ def _decrypt_archive(encrypted, plaintext, key):
                     target.write(decryptor.update(buf))
                     left -= len(buf)
                 target.write(decryptor.finalize())
-        except ValueError:
+        except (InvalidTag, ValueError):
             raise BackupError("Backup authentication failed: incorrect key or modified file") from None
 
 
