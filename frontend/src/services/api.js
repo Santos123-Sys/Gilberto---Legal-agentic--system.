@@ -1,10 +1,12 @@
-const BASE = import.meta.env.VITE_API_URL || ''
+import { authorizedFetch } from '../auth/client'
+import { AuthenticatedEventStream } from '../auth/stream'
+const BASE = import.meta.env.VITE_AUTH_MODE === 'local' ? '' : (import.meta.env.VITE_API_URL || '')
 
 // ─────────────────────────────────────────────
 //  Core fetch wrapper
 // ─────────────────────────────────────────────
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await authorizedFetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   })
@@ -35,7 +37,7 @@ export const api = {
   startSession: (sessionId, file) => {
     const form = new FormData()
     form.append('document', file)
-    return fetch(`${BASE}/api/sessions/${sessionId}/start`, {
+    return authorizedFetch(`${BASE}/api/sessions/${sessionId}/start`, {
       method: 'POST',
       body: form,
     }).then(async (res) => {
@@ -79,7 +81,7 @@ export const api = {
  */
 export function openDebateStream(sessionId, onEvent, cursor = 0) {
   const url = `${BASE}/api/sessions/${sessionId}/stream?cursor=${cursor}`
-  const source = new EventSource(url)
+  const source = new AuthenticatedEventStream(url)
 
   source.onmessage = (e) => {
     try {

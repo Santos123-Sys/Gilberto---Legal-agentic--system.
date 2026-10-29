@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './authenticated-fixture.js'
 
 test('keyboard can skip sticky header and focus main legal workspace on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
