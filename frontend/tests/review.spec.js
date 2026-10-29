@@ -73,6 +73,7 @@ test('rejected acceptance displays server error and retains the report', async (
   await emit(page, [{ event_id: 1, type: 'MASTER_MANAGER_COMPLETE', summary: synthesis },
     { event_id: 2, type: 'DEBATE_COMPLETE' }])
   await page.getByRole('button', { name: 'Accept Final Analysis' }).click()
+  await page.getByRole('button', { name: 'Confirm final acceptance' }).click()
   await expect(page.getByRole('alert')).toContainText('Finish required review first')
   await expect(page.getByRole('heading', { name: 'Analysis Accepted' })).toHaveCount(0)
   await expect(page.getByText(synthesis.executive_summary)).toBeVisible()
@@ -149,4 +150,26 @@ test('new round does not inherit completed workstream score or status from prior
   await expect(page.getByText('Current-round reviewer', { exact: true })).toBeVisible()
   await expect(page.getByText('9.0', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
+})
+
+test('acceptance requires a second explicit decision and can be dismissed', async ({ page }) => {
+  let acceptanceCalls = 0
+  await setup(page)
+  await page.route('**/api/sessions/*/accept', async route => {
+    acceptanceCalls += 1
+    await route.fulfill({ json: { status: 'completed' } })
+  })
+  await emit(page, [
+    { event_id: 1, type: 'MASTER_MANAGER_COMPLETE', summary: synthesis },
+    { event_id: 2, type: 'DEBATE_COMPLETE' },
+  ])
+  await page.getByRole('button', { name: 'Accept Final Analysis' }).click()
+  await expect(page.getByRole('group', { name: 'Confirm final acceptance' })).toBeVisible()
+  expect(acceptanceCalls).toBe(0)
+  await page.getByRole('button', { name: 'Keep reviewing' }).click()
+  expect(acceptanceCalls).toBe(0)
+  await page.getByRole('button', { name: 'Accept Final Analysis' }).click()
+  await page.getByRole('button', { name: 'Confirm final acceptance' }).click()
+  await expect(page.getByRole('heading', { name: 'Analysis Accepted' })).toBeVisible()
+  expect(acceptanceCalls).toBe(1)
 })
