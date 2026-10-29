@@ -398,7 +398,9 @@ class DebateEngineV3:
                         raise WorkflowError("Cost cap configured without both model price rates; refusing paid dispatch")
                     reservation = (
                         estimated_input_tokens * input_price
-                        + settings.MAX_TOKENS * output_price
+                        + (settings.FALLBACK_LLM_MAX_COMPLETION_TOKENS
+                           if self.provider_mode == "backup" and settings.FALLBACK_LLM_MODEL == "gpt-6.1-sol"
+                           else settings.MAX_TOKENS) * output_price
                     ) / 1_000_000
                     if self.execution_metrics["reserved_upper_bound_usd"] + reservation > hard_cap:
                         raise WorkflowError("Per-review estimated cost ceiling reached; no further model requests sent")
