@@ -38,6 +38,7 @@ from config import settings
 from financial.planning import estimate_plan
 from operational.metrics import summarize_sessions
 import session_store
+import run_control
 from provider import ProviderError, backup_configured
 from document_extractor import DocumentExtractionError, extract_document_text
 from engines.debate_engine_v3 import DebateEngineV3, ReanalysisRequested, WorkflowError
@@ -371,21 +372,49 @@ async def checkpoint_mutations(request: Request, call_next):
 # ─────────────────────────────────────────────
 
 def _append_event(session, event):
-    session["events"].append({**deepcopy(event), "event_id": len(session["events"]) + 1,
+    session["events"].append({**deepcopy(event), **run_control.synchronize(session),
+                              "event_id": len(session["events"]) + 1,
                               "session_id": session["id"]})
+
+
+def _acknowledge_pause(session):
+    """A pause is effective only after dispatched provider coroutines have drained."""
+    if (session["status"] in ("running", "awaiting_gate")
+            and session.get("run_control") == "pause_requested"
+            and not session.get("pause_acknowledged")
+            and not session["engine"]._active_provider_calls):
+        session["pause_acknowledged"] = True
+        _append_event(session, {"type": "RUN_PAUSED", "timestamp": datetime.now().isoformat(),
+                               "message": "Provider dispatch is paused. Completed findings and pending reviews are retained."})
+        session_store.save(session)
+
+
+def _check_control_version(session, expected_version):
+    # No await occurs between this guard, the command and its checkpoint.
+    current = run_control.synchronize(session)["control_version"]
+    if expected_version is not None and expected_version != current:
+        raise HTTPException(status_code=409, detail="Execution state changed; refresh before issuing this command")
 
 
 async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
     """One accountable task per session; re-analysis reuses the same task and budget."""
     session = sessions[session_id]
     engine = session["engine"]
+    engine._on_dispatch_idle = lambda: _acknowledge_pause(session)
+    if session.get("run_control") == "preparing":
+        session["run_control"] = "running"
+        _append_event(session, {"type": "RUN_STARTED", "timestamp": datetime.now().isoformat()})
+        session_store.save(session)
     try:
         while True:
             stream = (engine.run_debate(document_text) if feedback is None else
                       engine.process_feedback(feedback, document_text))
             try:
                 async for event in stream:
-                    _append_event(session, event)
+                    if session["status"] in ("cancellation_requested", "cancelled"):
+                        # A cancelled producer may still have queued output. It
+                        # cannot overwrite authoritative terminal state/results.
+                        raise asyncio.CancelledError()
                     kind = event["type"]
                     if kind == "ROUND_COMPLETE":
                         session["rounds"].append({
@@ -405,6 +434,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                         session["gate_records"] = engine.get_all_gate_records()
                     elif kind == "ERROR":
                         raise RuntimeError(event.get("message", "Analysis failed"))
+                    _append_event(session, event)
                     session_store.save(session)
                 break
             except ReanalysisRequested as exc:
@@ -414,12 +444,14 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                 session["status"] = "running"
                 feedback = str(exc)
     except asyncio.CancelledError:
-        session["status"] = "cancelled"
-        session["error"] = None
-        session.get("cancellation", {}).update(state="confirmed")
-        _append_event(session, {"type": "CANCELLED",
-                                "message": "Orchestration stopped. An in-flight provider call may still finish.",
-                                "timestamp": datetime.now().isoformat()})
+        if session["status"] == "cancellation_requested":
+            _finish_cancel(session)
+        elif session["status"] != "cancelled":
+            session["status"] = "error"
+            session["interrupted"] = True
+            session["error"] = "Execution was interrupted. Saved findings are retained; start a new review to continue safely."
+            _append_event(session, {"type": "ERROR", "message": session["error"],
+                                    "timestamp": datetime.now().isoformat()})
         raise
     except Exception as exc:
         # Do not expose provider payloads or contract excerpts in operational errors.
@@ -430,6 +462,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                                 "error_type": type(exc).__name__,
                                 "timestamp": datetime.now().isoformat()})
     finally:
+        engine._on_dispatch_idle = None
         engine._running = False
         session["execution_metrics"] = engine.get_metrics()
         session["gate_records"] = engine.get_all_gate_records()
@@ -552,6 +585,10 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
         "task": None,
         "feedback_rounds": 0,
         "run_control": "running",
+        "execution_state": "CREATED",
+        "control_version": 0,
+        "pause_acknowledged": False,
+        "started_at": None,
         "human_votes": [],
     }
 
@@ -599,6 +636,10 @@ async def start_session(session_id: str, document: UploadFile = File(...),
     session["document_text"] = document_text
     session["document_name"] = document.filename
     session["status"] = "running"
+    session["run_control"] = "preparing"
+    session["started_at"] = datetime.now().isoformat()
+    _append_event(session, {"type": "RUN_PREPARING", "timestamp": session["started_at"]})
+    session_store.save(session)
 
     session["task"] = asyncio.create_task(_run_analysis_bg(session_id, document_text))
 
@@ -674,6 +715,11 @@ async def get_status(session_id: str, principal: Principal = Depends(current_pri
         "gate_records_count": len(session["engine"].get_all_gate_records()),
         "feedback_rounds": session["feedback_rounds"],
         "run_control": session.get("run_control", "running"),
+        **run_control.response(session),
+        "started_at": session.get("started_at"),
+        "created_at": session.get("created_at"),
+        "last_checkpoint_at": session.get("last_checkpoint_at"),
+        "execution_metrics": session["engine"].get_metrics(),
         "human_vote_count": len(session.get("human_votes", [])),
         "error": session["error"],
     }
@@ -688,6 +734,7 @@ async def get_results(session_id: str, principal: Principal = Depends(current_pr
     return {
         "session_id": session_id,
         "status": session["status"],
+        **run_control.response(session),
         "config": session["config"],
         "rounds": session["rounds"],
         "total_rounds": len(session["rounds"]),
@@ -700,7 +747,7 @@ async def get_results(session_id: str, principal: Principal = Depends(current_pr
         "gate_records": engine.get_all_gate_records(),
         "human_votes": session.get("human_votes", []),
         "execution_metrics": engine.get_metrics(),
-        "partial": session["status"] == "error",
+        "partial": session["status"] in ("error", "cancellation_requested", "cancelled"),
     }
 
 
@@ -798,6 +845,9 @@ async def submit_feedback(session_id: str, request: FeedbackRequest, principal: 
     session["feedback_rounds"] += 1
     session["status"] = "running"
     session["error"] = None
+    session["run_control"] = "running"
+    session["pause_acknowledged"] = False
+    session["engine"]._dispatch_allowed.set()
     session["task"] = asyncio.create_task(_run_analysis_bg(session_id, session["document_text"], request.feedback))
 
     return {
@@ -820,35 +870,45 @@ def _finish_cancel(session):
 
 
 @app.post("/api/sessions/{session_id}/pause")
-async def pause_dispatch(session_id: str, principal: Principal = Depends(current_principal)):
+async def pause_dispatch(session_id: str, principal: Principal = Depends(current_principal),
+                         expected_version: Optional[int] = None):
     """Stop NEW AI dispatch at the next async boundary, preserving in-flight calls."""
     session = _get_session(session_id, principal)
+    _check_control_version(session, expected_version)
     if session["status"] != "running":
         raise HTTPException(status_code=409, detail="Only an actively running review can pause dispatch")
     if session.get("run_control") == "pause_requested":
-        return {"run_control": "pause_requested", "provider_in_flight_possible": True}
+        return run_control.response(session)
     session["run_control"] = "pause_requested"
+    session["pause_acknowledged"] = False
     session["engine"]._dispatch_allowed.clear()
     _append_event(session, {"type": "RUN_PAUSE_REQUESTED", "timestamp": datetime.now().isoformat(),
                             "message": "New AI requests paused at the next safe dispatch boundary. An in-flight request may finish."})
     session_store.save(session)
-    return {"run_control": "pause_requested", "provider_in_flight_possible": True}
+    _acknowledge_pause(session)
+    return run_control.response(session)
 
 
 @app.post("/api/sessions/{session_id}/resume")
-async def resume_dispatch(session_id: str, principal: Principal = Depends(current_principal)):
+async def resume_dispatch(session_id: str, principal: Principal = Depends(current_principal),
+                          expected_version: Optional[int] = None):
     """Allow remaining queued tasks to dispatch; do not replay completed calls."""
     session = _get_session(session_id, principal)
+    _check_control_version(session, expected_version)
     if session["status"] != "running" or session.get("run_control") != "pause_requested":
         raise HTTPException(status_code=409, detail="The review is not paused or cannot be resumed")
     if session["engine"]._provider_aborted or session["engine"]._provider_failure:
         raise HTTPException(status_code=409, detail="Provider failure or cancellation requires a new review")
+    session["run_control"] = "resuming"
+    session["pause_acknowledged"] = False
+    _append_event(session, {"type": "RUN_RESUMING", "timestamp": datetime.now().isoformat()})
+    session_store.save(session)
     session["run_control"] = "running"
     session["engine"]._dispatch_allowed.set()
     _append_event(session, {"type": "RUN_RESUMED", "timestamp": datetime.now().isoformat(),
                             "message": "New model dispatch resumed by the session owner."})
     session_store.save(session)
-    return {"run_control": "running", "provider_in_flight_possible": False}
+    return run_control.response(session)
 
 
 @app.post("/api/sessions/{session_id}/human-votes")
@@ -887,11 +947,14 @@ async def cast_human_vote(session_id: str, request: HumanVoteRequest,
 
 
 @app.post("/api/sessions/{session_id}/cancel")
-async def cancel_session(session_id: str, principal: Principal = Depends(current_principal)):
+async def cancel_session(session_id: str, principal: Principal = Depends(current_principal),
+                         expected_version: Optional[int] = None):
     """Stop new dispatch. Cannot undo or forcibly terminate an in-flight thread."""
     session = _get_session(session_id, principal)
     if session["status"] in ("cancelled", "cancellation_requested"):
-        return {"status": session["status"], "provider_in_flight_possible": True}
+        # Stop remains idempotent even when the caller lost its original receipt.
+        return {"status": session["status"], **run_control.response(session)}
+    _check_control_version(session, expected_version)
     if session["status"] not in ("created", "running", "awaiting_gate"):
         raise HTTPException(status_code=409, detail="This review cannot be cancelled in its current state")
     session["engine"]._provider_aborted = True
@@ -908,13 +971,16 @@ async def cancel_session(session_id: str, principal: Principal = Depends(current
                             "message": "Stopping new model and tool dispatch",
                             "timestamp": datetime.now().isoformat()})
     session_store.save(session)
+    session["cancellation"]["state"] = "stopping"
+    _append_event(session, {"type": "RUN_STOPPING", "timestamp": datetime.now().isoformat()})
+    session_store.save(session)
     task = session.get("task")
     if task and not task.done():
         task.add_done_callback(lambda _: _finish_cancel(session))
         task.cancel()
     else:
         _finish_cancel(session)
-    return {"status": session["status"], "provider_in_flight_possible": True}
+    return {"status": session["status"], **run_control.response(session)}
 
 
 @app.post("/api/sessions/{session_id}/accept")

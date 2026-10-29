@@ -325,6 +325,8 @@ class DebateEngineV3:
         # Pause is a dispatch barrier, not a cancellation of an already billed request.
         self._dispatch_allowed = asyncio.Event()
         self._dispatch_allowed.set()
+        self._active_provider_calls = 0
+        self._on_dispatch_idle = None
 
 
     # ── Event helpers ────────────────────────
@@ -428,12 +430,15 @@ class DebateEngineV3:
                           "status": "running"}
             self.execution_metrics["model_tasks"].append(task_trace)
             execution_started = time.monotonic()
+            self._active_provider_calls += 1
             # A timed-out thread cannot be killed safely; never retry it automatically.
             try:
                 result = await asyncio.wait_for(
                     asyncio.to_thread(_run_crew, agent_cfg, prompt, self.llm),
                     timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
                 )
+                if self._provider_aborted:
+                    raise WorkflowError("Provider result discarded after execution stopped")
                 task_trace["status"] = "completed"
                 return result
             except asyncio.CancelledError:
@@ -457,6 +462,9 @@ class DebateEngineV3:
             finally:
                 task_trace["execution_ms"] = round((time.monotonic() - execution_started) * 1000, 1)
                 self.execution_metrics["provider_usage"] = self.llm.usage_snapshot()
+                self._active_provider_calls -= 1
+                if self._active_provider_calls == 0 and self._on_dispatch_idle is not None:
+                    self._on_dispatch_idle()
 
     # ── Cluster execution (single cluster) ───
 
@@ -726,6 +734,9 @@ class DebateEngineV3:
         except BaseException:
             if not execution.done():
                 execution.cancel()
+            # Drain coroutine cleanup before the API saves a terminal checkpoint.
+            # Remote calls in threads may still complete; their results are ignored.
+            await asyncio.gather(execution, return_exceptions=True)
             raise
 
     async def _execute_debate(self, document_text: str) -> None:
@@ -857,6 +868,7 @@ class DebateEngineV3:
         except BaseException:
             if not execution.done():
                 execution.cancel()
+            await asyncio.gather(execution, return_exceptions=True)
             raise
 
     async def _execute_process_feedback(self, feedback: str, document_text: str) -> None:

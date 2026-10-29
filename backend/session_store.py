@@ -4,6 +4,8 @@ import os
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from datetime import datetime, timezone
+import run_control
 
 class SessionCheckpointError(RuntimeError):
     """The saved session exists but cannot be safely reconstructed."""
@@ -32,8 +34,11 @@ def is_ready() -> bool:
 
 
 def save(session):
+    run_control.synchronize(session)
     engine = session['engine']
     payload = {key: value for key, value in session.items() if key not in ('engine', 'task')}
+    checkpoint_at = datetime.now(timezone.utc).isoformat()
+    payload['last_checkpoint_at'] = checkpoint_at
     payload['engine_state'] = {key: getattr(engine, key) for key in ENGINE_FIELDS}
     payload['engine_state']['gate_records'] = engine.get_all_gate_records()
     # sqlite3.Connection's context manager commits, but does not close the connection.
@@ -42,6 +47,7 @@ def save(session):
         with db:
             db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?)',
                        (session['id'], json.dumps(payload, ensure_ascii=False)))
+    session['last_checkpoint_at'] = checkpoint_at
 
 
 def load(session_id, engine_factory):
@@ -73,6 +79,9 @@ def load(session_id, engine_factory):
     session.update(engine=engine, task=None)
     if session['status'] in ('running', 'awaiting_gate', 'cancellation_requested'):
         session['status'] = 'error'
+        session['interrupted'] = True
+        session['pause_acknowledged'] = False
+        engine._provider_aborted = True
         session['error'] = 'Execution was interrupted by a server restart. Saved findings and review records are retained. Start a new analysis to continue safely.'
         session['events'].append({'type': 'ERROR', 'message': session['error'],
                                   'event_id': len(session['events']) + 1, 'session_id': session_id})
