@@ -173,7 +173,7 @@ export default function App() {
             />
             <details className="card p-4">
               <summary className="cursor-pointer text-sm text-slate-300">Show specialist status and scores</summary>
-              <div className="mt-4"><AgentClusterPanel events={session.events} /></div>
+              <div className="mt-4"><AgentClusterPanel events={session.events} activeClusters={session.config?.active_clusters} /></div>
             </details>
           </div>
         )}
@@ -246,7 +246,7 @@ export default function App() {
             />
 
             {/* Live cluster panel for completed analysis */}
-            <AgentClusterPanel events={session.events} />
+            <AgentClusterPanel events={session.events} activeClusters={session.config?.active_clusters} />
 
             {/* Audit trail */}
             <AuditTrail

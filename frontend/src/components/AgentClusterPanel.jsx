@@ -61,10 +61,15 @@ const STATUS_CONFIG = {
   complete: { label: 'Complete', color: 'green', animated: false },
 }
 
-export function AgentClusterPanel({ events }) {
+export function AgentClusterPanel({ events, activeClusters }) {
+  // Render only the configured scope; an unconfigured team must not appear
+  // to have reviewed the document.
+  const start = events.find(event => event.type === 'DEBATE_START')
+  const roster = start?.active_clusters || activeClusters
+  const activeIds = Array.isArray(roster) ? roster.map(item => typeof item === 'string' ? item : item.id) : null
   const activeEvents = useMemo(() => currentExecutionEvents(events), [events])
   const clusters = useMemo(() => {
-    return Object.entries(CLUSTER_CONFIG).map(([id, config]) => ({
+    return Object.entries(CLUSTER_CONFIG).filter(([id]) => !activeIds || activeIds.includes(id)).map(([id, config]) => ({
       id,
       ...config,
       status: getClusterStatus(id, activeEvents),
@@ -72,7 +77,7 @@ export function AgentClusterPanel({ events }) {
       confidence: getClusterConfidence(id, activeEvents),
       agents: getAgentStatuses(id, activeEvents),
     }))
-  }, [activeEvents])
+  }, [activeEvents, activeIds?.join(',')])
 
   const daEvent = activeEvents.find(e => e.type === 'DEVILS_ADVOCATE_COMPLETE')
   const daStatus = activeEvents.some(e => e.type === 'DEVILS_ADVOCATE_START')
@@ -80,7 +85,7 @@ export function AgentClusterPanel({ events }) {
     : 'pending'
 
   return (
-    <div className="space-y-4">
+    <section aria-label="Agent workspace" className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {clusters.map(cluster => (
           <ClusterCard key={cluster.id} cluster={cluster} />
@@ -89,7 +94,7 @@ export function AgentClusterPanel({ events }) {
         {/* Devil's Advocate Card */}
         <DevilsAdvocateCard status={daStatus} result={daEvent} />
       </div>
-    </div>
+    </section>
   )
 }
 
