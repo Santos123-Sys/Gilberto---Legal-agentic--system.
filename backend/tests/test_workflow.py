@@ -311,3 +311,24 @@ class RunBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BrazilianJurisdictionScopeTests(unittest.TestCase):
+    def test_only_br_is_accepted_by_api_schema(self):
+        from pydantic import ValidationError
+        from models.schemas import SessionCreateRequest
+        for foreign in ("CH", "PT", "US", "EU", "Brazil", "", "br"):
+            with self.subTest(foreign=foreign):
+                with self.assertRaises(ValidationError):
+                    SessionCreateRequest(jurisdiction=foreign)
+        self.assertEqual(SessionCreateRequest(jurisdiction="BR").jurisdiction, "BR")
+
+    def test_agent_instructions_cannot_silently_expand_foreign_scope(self):
+        from agents.cluster_definitions import get_cluster_analysis_prompt, CLUSTERS
+        role = CLUSTERS["foundation"]["agents"][0]
+        prompt = get_cluster_analysis_prompt(
+            document_text="Fictional contract invoking foreign legal regime.",
+            agent_cfg=role, round_num=1,
+            prior_cluster_summaries={}, previous_analyses=None)
+        self.assertIn("strictly Brazilian law", prompt)
+        self.assertIn("OUT_OF_SCOPE", prompt)
