@@ -30,7 +30,7 @@ from collections import deque
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from provider import MaritacaClient, ProviderError
+from provider import MaritacaClient, BackupClient, ProviderError
 
 from config import settings
 from scoring import aggregate_clusters, weighted_median
@@ -276,10 +276,14 @@ class DebateEngineV3:
         num_agents: int,
         num_rounds: int,
         workflow_type: str,
+        provider_mode: str = "primary",
     ):
         self.session_id = session_id
         self.num_rounds = num_rounds
         self.workflow_type = workflow_type
+        if provider_mode not in ("primary", "backup"):
+            raise ValueError("Unsupported provider mode")
+        self.provider_mode = provider_mode
         self.current_round = 0
 
         # State
@@ -302,7 +306,7 @@ class DebateEngineV3:
         }
 
         # LLM
-        self.llm = MaritacaClient()
+        self.llm = BackupClient() if provider_mode == "backup" else MaritacaClient()
         self.review_depth = "full"
 
         # Event queue for SSE
@@ -385,8 +389,10 @@ class DebateEngineV3:
                 # Reserve conservative upper-bound output BEFORE paid dispatch.
                 # Does not claim actual provider billing or exact tokenizer size.
                 hard_cap = settings.MAX_REVIEW_ESTIMATED_USD
-                input_price = settings.LLM_INPUT_PRICE_USD_PER_1M
-                output_price = settings.LLM_OUTPUT_PRICE_USD_PER_1M
+                input_price = (settings.FALLBACK_LLM_INPUT_PRICE_USD_PER_1M
+                               if self.provider_mode == "backup" else settings.LLM_INPUT_PRICE_USD_PER_1M)
+                output_price = (settings.FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M
+                                if self.provider_mode == "backup" else settings.LLM_OUTPUT_PRICE_USD_PER_1M)
                 if hard_cap > 0:
                     if input_price <= 0 or output_price <= 0:
                         raise WorkflowError("Cost cap configured without both model price rates; refusing paid dispatch")
@@ -409,6 +415,7 @@ class DebateEngineV3:
             task_trace = {"task_id": self.execution_metrics["model_calls"],
                           "agent": agent_cfg.get("role"), "round": self.current_round,
                           "estimated_input_tokens": estimated_input_tokens,
+                          "provider_mode": self.provider_mode,
                           "queue_wait_ms": round((time.monotonic() - queued_at) * 1000, 1),
                           "status": "running"}
             self.execution_metrics["model_tasks"].append(task_trace)
