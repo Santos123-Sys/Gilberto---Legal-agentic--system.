@@ -22,6 +22,15 @@ class Settings(BaseSettings):
     TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.1"))
     MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "4096"))
 
+    # Backup provider requires explicit operator allowlist and user consent.
+    # No failover or retry after an uncertain Maritaca execution.
+    FALLBACK_LLM_API_KEY: str = ""
+    FALLBACK_LLM_BASE_URL: str = ""
+    FALLBACK_LLM_MODEL: str = ""
+    FALLBACK_LLM_ALLOWED_HOSTS: str = ""
+    FALLBACK_LLM_INPUT_PRICE_USD_PER_1M: float = Field(default=0.0, ge=0, le=1000000)
+    FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M: float = Field(default=0.0, ge=0, le=1000000)
+
     # Managed OIDC or invite-only local accounts. Never fall back to anonymous.
     AUTH_MODE: str = "oidc"
     LOCAL_AUTH_APP_ORIGIN: str = ""
