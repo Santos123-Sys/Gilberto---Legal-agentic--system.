@@ -61,6 +61,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] relative">
+      <a href="#workspace-main" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:rounded-lg focus:bg-slate-100 focus:px-4 focus:py-3 focus:text-slate-950">
+        Skip to legal workspace
+      </a>
       {/* Background texture */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.015]"
         style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4a843' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")" }}
@@ -104,7 +107,7 @@ export default function App() {
       </header>
 
       {/* ── Main ── */}
-      <main className="max-w-7xl mx-auto px-6 py-10">
+      <main id="workspace-main" tabIndex={-1} className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
 
         {/* Error banner */}
         {session.error && (
