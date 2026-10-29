@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.1"))
     MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "4096"))
 
+    # OIDC API verifier (never allow anonymous fallback).
+    OIDC_ISSUER: str = ""
+    OIDC_AUDIENCE: str = ""
+    OIDC_JWKS_URL: str = ""
+
     # ── Server ───────────────────────────────
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))

@@ -4,6 +4,7 @@ The caller MUST supply the verified API audience and issuer, and MUST enforce
 per-resource authorization afterwards. Browser ID tokens are not API grants.
 """
 from dataclasses import dataclass
+from typing import Optional
 from urllib.parse import urlparse
 
 import jwt
@@ -21,6 +22,7 @@ class IdentityNotConfigured(RuntimeError):
 class Principal:
     issuer: str
     subject: str
+    expires_at: Optional[int] = None
 
     @property
     def stable_id(self) -> tuple[str, str]:
@@ -67,7 +69,7 @@ def verify_access_token(authorization: str | None, *, issuer: str,
         sub = claims.get("sub")
         if not isinstance(sub, str) or not sub.strip() or len(sub) > 256:
             raise AuthenticationRejected("Valid authentication is required")
-        return Principal(issuer=issuer, subject=sub)
+        return Principal(issuer=issuer, subject=sub, expires_at=claims['exp'])
     except (jwt.PyJWTError, ValueError, TypeError, KeyError) as exc:
         raise AuthenticationRejected("Valid authentication is required") from None
 
