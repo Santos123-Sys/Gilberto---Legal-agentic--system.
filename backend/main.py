@@ -44,6 +44,7 @@ from security.oidc import (Principal, AuthenticationRejected, IdentityNotConfigu
                            build_jwks_resolver, verify_access_token)
 from security.authorization import AccessDenied, require_session_owner
 from security import local_identity
+import backup_operations
 from models.schemas import (
     FeedbackRequest,
     GateDecisionRequest,
@@ -68,6 +69,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def start_backup_scheduler():
+    if settings.AUTH_MODE == "local" and backup_operations.enabled():
+        app.state.backup_task = asyncio.create_task(backup_operations.periodic_backup())
+
+
+@app.on_event("shutdown")
+async def stop_backup_scheduler():
+    task = getattr(app.state, "backup_task", None)
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
 
 # ─────────────────────────────────────────────
 #  IN-MEMORY SESSION STORE
@@ -158,6 +173,42 @@ async def local_bootstrap(body: LocalBootstrapRequest, response: Response):
         raise HTTPException(status_code=403, detail="Initial setup is unavailable or invalid") from None
     _issue_cookie(response, token)
     return {"user": user, "status": "administrator_created"}
+
+
+def _require_local_admin(principal: Principal):
+    _local_only()
+    if principal.issuer != local_identity.LOCAL_ISSUER or (
+        local_identity.user_role(principal.subject) != "admin"
+    ):
+        raise HTTPException(status_code=403, detail="Administrator access required")
+
+
+@app.get("/api/admin/backups/status")
+async def backup_status(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    return {"enabled": backup_operations.enabled(), **backup_operations.get_status()}
+
+
+@app.post("/api/admin/backups/run")
+async def backup_run(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    try:
+        return await backup_operations.run_backup()
+    except RuntimeError:
+        raise HTTPException(status_code=409, detail="Backup is unavailable or running") from None
+    except Exception:
+        raise HTTPException(status_code=503, detail="Backup failed; inspect restricted status") from None
+
+
+@app.post("/api/admin/backups/verify")
+async def backup_verify(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    try:
+        return await backup_operations.verify_latest_offsite()
+    except RuntimeError:
+        raise HTTPException(status_code=409, detail="No backup is ready for verification") from None
+    except Exception:
+        raise HTTPException(status_code=503, detail="Restore verification failed") from None
 
 
 @app.get("/api/admin/users")
