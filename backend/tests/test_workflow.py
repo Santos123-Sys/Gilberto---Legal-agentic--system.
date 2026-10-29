@@ -7,6 +7,8 @@ from unittest.mock import patch
 import httpx
 import main
 from config import settings
+from security.oidc import Principal
+TEST_PRINCIPAL = Principal('https://identity.example/', 'lawyer-001')
 from engines.debate_engine_v3 import ReanalysisRequested, _safe_json
 from scoring import aggregate_clusters, weighted_median
 
@@ -49,6 +51,7 @@ class ScoringTests(unittest.TestCase):
 
 class WorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        main.app.dependency_overrides[main.current_principal] = lambda: TEST_PRINCIPAL
         main.sessions.clear()
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url='http://test')
         response = await self.client.post('/api/sessions', json={'num_rounds': 1})
@@ -64,6 +67,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
         await self.client.aclose()
+        main.app.dependency_overrides.pop(main.current_principal, None)
 
     def gate(self, cluster='foundation'):
         record = self.engine.gate_evaluator.record_trigger({'gate_number': 1, 'affected_cluster': cluster})
@@ -78,7 +82,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             'reasoning': 'Please recheck termination.', **extra})
 
     async def test_post_checkpoints_only_targeted_session(self):
-        unrelated = (await main.create_session(main.SessionCreateRequest(num_rounds=1))).session_id
+        unrelated = (await main.create_session(main.SessionCreateRequest(num_rounds=1), TEST_PRINCIPAL)).session_id
         self.engine.master_summaries = [{'parsed': {'final_score': 6, 'final_classification': 'Relevante'}}]
         self.session['status'] = 'awaiting_feedback'
         with patch.object(main.session_store, 'save') as save:
@@ -165,7 +169,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('/data/path', response.text)
 
     async def test_active_analysis_limit_fails_before_paid_dispatch(self):
-        second = (await main.create_session(main.SessionCreateRequest(num_rounds=1))).session_id
+        second = (await main.create_session(main.SessionCreateRequest(num_rounds=1), TEST_PRINCIPAL)).session_id
         self.session['status'] = 'awaiting_gate'
         with patch.object(settings, 'MAX_CONCURRENT_ANALYSES', 1):
             response = await self.client.post(
@@ -249,9 +253,15 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.session['status'], 'awaiting_feedback')
 
 class RunBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        main.app.dependency_overrides[main.current_principal] = lambda: TEST_PRINCIPAL
+
+    async def asyncTearDown(self):
+        main.app.dependency_overrides.pop(main.current_principal, None)
+
     async def test_full_run_waits_for_every_review_and_uses_new_ids_each_round(self):
         main.sessions.clear()
-        created = await main.create_session(main.SessionCreateRequest(num_rounds=2))
+        created = await main.create_session(main.SessionCreateRequest(num_rounds=2), TEST_PRINCIPAL)
         sid = created.session_id
         session = main.sessions[sid]
         engine = session['engine']
@@ -277,12 +287,12 @@ class RunBoundaryTests(unittest.IsolatedAsyncioTestCase):
                     seen.add(gate['gate_id'])
                     await main.submit_gate_decision(sid, main.GateDecisionRequest(
                         session_id=sid, gate_number=gate['gate_number'], gate_id=gate['gate_id'],
-                        human_review_id='test', decision='approve', reasoning='Reviewed the source'))
+                        human_review_id='test', decision='approve', reasoning='Reviewed the source'), TEST_PRINCIPAL)
                 self.assertEqual(session['status'], 'running')
             await asyncio.wait_for(task, timeout=2)
         self.assertEqual(session['status'], 'awaiting_feedback')
         self.assertEqual(len(session['rounds']), 2)
-        self.assertEqual((await main.accept_result(sid))['status'], 'completed')
+        self.assertEqual((await main.accept_result(sid, TEST_PRINCIPAL))['status'], 'completed')
 
     async def test_timeout_aborts_queued_work_without_dispatch(self):
         engine = main.DebateEngineV3('timeout', 20, 1, 'general')
