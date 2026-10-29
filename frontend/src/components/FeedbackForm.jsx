@@ -12,6 +12,7 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
   const safeRounds = Array.isArray(rounds) ? rounds : []
   const [feedback, setFeedback] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [confirmAcceptance, setConfirmAcceptance] = useState(false)
 
   const handleSubmit = async () => {
     if (feedback.trim().length < 10 || loading || submitted) return
@@ -119,7 +120,7 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
           </button>
 
           <button
-            onClick={onAccept}
+            onClick={() => setConfirmAcceptance(true)}
             disabled={loading}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all
               disabled:opacity-40 disabled:cursor-not-allowed
@@ -128,6 +129,15 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
             Accept Final Analysis <ChevronRight size={14} />
           </button>
         </div>
+        {confirmAcceptance && (
+          <div role="group" aria-label="Confirm final acceptance" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
+            <p className="text-sm text-slate-200">Accept this AI-generated draft as the final session result? This records your acceptance; it does not verify legal authorities or evidence.</p>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => { setConfirmAcceptance(false); onAccept?.() }} className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-medium text-slate-950">Confirm final acceptance</button>
+              <button type="button" onClick={() => setConfirmAcceptance(false)} className="rounded-lg border border-slate-500 px-4 py-2 text-sm text-slate-200">Keep reviewing</button>
+            </div>
+          </div>
+        )}
         <p className="text-xs text-slate-600">
           Submitting feedback creates a new Feedback Advocate agent and starts an additional debate round.
         </p>
