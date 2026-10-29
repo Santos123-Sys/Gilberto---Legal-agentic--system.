@@ -141,6 +141,19 @@ export default function App() {
             <h2 className="text-base text-amber-300 font-medium">Provider failure recovery</h2>
             <p className="text-sm text-slate-300">A request might have completed or incurred charges even if its response was lost. Gilberto will not silently retry or transfer legal material to another AI vendor.</p>
             <p className="text-sm text-slate-300">To use an operator-approved backup model, select New Analysis, choose the backup inference destination, consent to the additional document transfer and upload the source again. Partial findings remain incomplete and must be reviewed.</p>
+            <button type="button" className="btn-secondary text-sm" onClick={() => {
+              const audit = { session_id: session.sessionId, completeness: 'incomplete_unverified',
+                events_visible_in_this_browser: session.events, model_tasks: session.executionMetrics,
+                human_votes: session.humanVotes, saved_at: new Date().toISOString() }
+              const blob = new Blob([JSON.stringify(audit, null, 2)], { type: 'application/json' })
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement('a')
+              link.href = url
+              link.download = `gilberto-incomplete-${session.sessionId || 'session'}.json`
+              link.click()
+              URL.revokeObjectURL(url)
+            }}>Export incomplete session audit before restarting</button>
+            <p className="text-xs text-slate-400">This file may contain confidential document excerpts. Store it securely; missing stream events cannot be reconstructed from this browser export.</p>
           </section>
         )}
 
