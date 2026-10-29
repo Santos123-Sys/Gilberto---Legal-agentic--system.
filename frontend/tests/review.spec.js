@@ -150,3 +150,15 @@ test('new round does not inherit completed workstream score or status from prior
   await expect(page.getByText('9.0', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('legal draft presents an inspectable manual evidence verification checklist', async ({ page }) => {
+  const errors = await setup(page)
+  await emit(page, [
+    { event_id: 1, type: 'MASTER_MANAGER_COMPLETE', summary: synthesis },
+    { event_id: 2, type: 'DEBATE_COMPLETE' },
+  ])
+  await page.getByText('Evidence verification checklist (manual)').click()
+  await expect(page.getByText('Locate each quoted contract clause', { exact: false })).toBeVisible()
+  await expect(page.getByText('These checks are not performed or certified', { exact: false })).toBeVisible()
+  expect(errors).toEqual([])
+})

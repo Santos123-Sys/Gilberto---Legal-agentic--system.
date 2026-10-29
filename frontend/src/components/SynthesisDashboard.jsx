@@ -21,6 +21,15 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
   return (
     <div className="space-y-6">
       <p className="text-sm text-slate-300">AI-generated draft. Check cited clauses and legal authorities before relying on the conclusions. Model agreement does not verify legal correctness.</p>
+      <details className="card p-4 text-sm">
+        <summary className="cursor-pointer text-amber-300 font-medium">Evidence verification checklist (manual)</summary>
+        <ol className="list-decimal ml-5 mt-3 space-y-2 text-slate-300">
+          <li>Locate each quoted contract clause in the original uploaded document and compare wording and surrounding context.</li>
+          <li>Independently check cited laws, court decisions and effective dates against authoritative sources.</li>
+          <li>Flag material conclusions without source support for expert review before relying on the draft.</li>
+        </ol>
+        <p className="mt-3 text-xs text-slate-400">These checks are not performed or certified by Gilberto automatically.</p>
+      </details>
       {synthesis.human_override && <p role="status" className="text-sm text-yellow-300">Risk score adjusted by a human reviewer: {synthesis.human_override.reasoning}. Model score: {synthesis.model_assessment?.final_score}.</p>}
       {/* Executive Summary */}
       <div className="card p-6 border-gold-500/30">
