@@ -63,6 +63,9 @@ export function useAgenticSession() {
   const [showIntentPreview, setShowIntentPreview] = useState(false)
   const [connectionState, setConnectionState] = useState('idle')
   const [lastEventAt, setLastEventAt] = useState(null)
+  const [runControl, setRunControl] = useState('running')
+  const [humanVotes, setHumanVotes] = useState([])
+
 
   const eventSourceRef = useRef(null)
   const cursorRef = useRef(0)
@@ -287,7 +290,23 @@ export function useAgenticSession() {
             setStatus('awaiting_feedback')
             break
 
+          case 'RUN_PAUSE_REQUESTED':
+            setRunControl('pause_requested')
+            break
+
+          case 'RUN_RESUMED':
+            setRunControl('running')
+            break
+
+          case 'HUMAN_VOTE_RECORDED':
+            setHumanVotes(prev => prev.some(v => v.event_id === event.target_event_id)
+              ? prev : [...prev, { event_id: event.target_event_id,
+                  decision: event.decision, reasoning: event.reasoning,
+                  reviewer: event.reviewer, agent: event.agent, round: event.round }])
+            break
+
           case 'CANCEL_REQUESTED':
+            setRunControl('cancelled')
             setStatus('cancellation_requested')
             break
 
@@ -365,6 +384,7 @@ export function useAgenticSession() {
         setConfig(saved.config || null)
         setDocumentName(remote.document_name || null)
         setStatus(restoredStatus)
+        setRunControl(remote.run_control || 'running')
         setShowIntentPreview(false)
         if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(remote.status)) {
           connectStream(saved.sessionId, 0)
@@ -462,6 +482,48 @@ export function useAgenticSession() {
     }
   }, [sessionId])
 
+  const setDispatchPaused = useCallback(async (pause) => {
+    if (!sessionId) return false
+    try {
+      const operation = pause ? 'pause' : 'resume'
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/${operation}`,
+        { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${res.status}`))
+      }
+      const result = await res.json()
+      setRunControl(result.run_control)
+      setError(null)
+      return true
+    } catch (error) {
+      setError(`Dispatch control failed: ${error.message}`)
+      return false
+    }
+  }, [sessionId])
+
+  const castHumanVote = useCallback(async (eventId, decision, reasoning) => {
+    if (!sessionId) return false
+    try {
+      const response = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/human-votes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId, decision, reasoning }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${response.status}`))
+      }
+      const { vote } = await response.json()
+      setHumanVotes(prev => prev.some(item => item.event_id === eventId) ? prev : [...prev, vote])
+      setError(null)
+      return true
+    } catch (error) {
+      setError(`Human vote was not recorded: ${error.message}`)
+      return false
+    }
+  }, [sessionId])
+
   const cancelAnalysis = useCallback(async () => {
     if (!sessionId) return false
     try {
@@ -508,6 +570,8 @@ export function useAgenticSession() {
     gapDetectedRef.current = false
     setConnectionState('idle')
     setLastEventAt(null)
+    setRunControl('running')
+    setHumanVotes([])
   }, [])
 
   return {
@@ -521,6 +585,8 @@ export function useAgenticSession() {
     devilAdvocate,
     finalSynthesis,
     executionMetrics,
+    runControl,
+    humanVotes,
     error,
     config,
     documentName,
@@ -534,6 +600,8 @@ export function useAgenticSession() {
     submitFeedback,
     acceptResult,
     cancelAnalysis,
+    setDispatchPaused,
+    castHumanVote,
     reset,
     setShowIntentPreview,
   }
