@@ -42,6 +42,8 @@ function encodeUrlSafe(bytes) {
 
 export async function startLogin() {
   const identity = validateConfig()
+  // A rejected prior callback must not poison the next PKCE transaction.
+  callbackPromise = null
   const verifier = randomUrlSafe()
   const challenge = encodeUrlSafe(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
   const state = randomUrlSafe()

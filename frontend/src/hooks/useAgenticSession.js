@@ -329,7 +329,7 @@ export function useAgenticSession() {
     if (!sessionId) {
       return
     }
-    saveSession({ sessionId, config, documentName })
+    saveSession({ sessionId, config })
   }, [sessionId, config, documentName])
 
   // Restore an in-flight server session after refresh, then replay its event history.
@@ -352,7 +352,7 @@ export function useAgenticSession() {
         }
         setSessionId(saved.sessionId)
         setConfig(saved.config || null)
-        setDocumentName(remote.document_name || saved.documentName || null)
+        setDocumentName(remote.document_name || null)
         setStatus(restoredStatus)
         setShowIntentPreview(false)
         if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(remote.status)) {
