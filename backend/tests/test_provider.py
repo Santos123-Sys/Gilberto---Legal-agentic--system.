@@ -39,6 +39,33 @@ class ProviderTests(unittest.TestCase):
             self.assertNotIn('private payload', str(raised.exception))
             self.assertNotIn('synthetic-secret', str(raised.exception))
 
+    def test_http_failure_codes_are_precise_and_do_not_leak_provider_payloads(self):
+        cases = ((307, 'unexpected_redirect'), (404, 'invalid_endpoint'),
+                 (405, 'invalid_endpoint'), (408, 'upstream_timeout'),
+                 (418, 'provider_rejected_request'), (422, 'invalid_request'),
+                 (500, 'provider_unavailable'), (502, 'provider_unavailable'),
+                 (503, 'provider_unavailable'), (504, 'provider_unavailable'))
+        for status, code in cases:
+            with self.subTest(status=status), self.assertLogs('provider', level='WARNING') as logs:
+                with self.assertRaises(ProviderError) as raised:
+                    self.dispatch(httpx.Response(status, text='private payload synthetic-secret'))
+            exc = raised.exception
+            self.assertEqual(exc.code, code)
+            self.assertEqual(exc.http_status, status)
+            self.assertIn(str(status), str(exc))
+            self.assertNotIn('private payload', str(exc))
+            self.assertNotIn('synthetic-secret', str(exc))
+            self.assertNotIn('private payload', ' '.join(logs.output))
+            self.assertNotIn('synthetic-secret', ' '.join(logs.output))
+
+    def test_503_is_not_automatically_replayed_or_double_billed(self):
+        with patch.object(settings, 'MARITACA_API_KEY', 'synthetic-secret'), patch('provider.httpx.Client') as client:
+            client.return_value.__enter__.return_value.post.return_value = httpx.Response(503, text='private')
+            with self.assertRaises(ProviderError) as raised:
+                MaritacaClient().call([{'role': 'user', 'content': 'synthetic'}])
+            self.assertEqual(raised.exception.http_status, 503)
+            self.assertEqual(client.return_value.__enter__.return_value.post.call_count, 1)
+
     def test_missing_key_never_sends(self):
         with patch.object(settings, 'MARITACA_API_KEY', ''), patch('provider.httpx.Client') as client:
             with self.assertRaisesRegex(ProviderError, 'MARITACA_API_KEY'):
