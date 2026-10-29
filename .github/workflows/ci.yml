@@ -22,6 +22,8 @@ jobs:
         working-directory: backend
       - run: python -m unittest discover -s tests -v
         working-directory: backend
+      - run: python -m benchmarks.validate
+        working-directory: backend
   backup-gateway:
     runs-on: ubuntu-latest
     steps:
