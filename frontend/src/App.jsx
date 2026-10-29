@@ -23,6 +23,8 @@ function StatusBar({ status, sessionId, currentRound, numRounds, docName, pendin
     awaiting_gate:      { label: `Gate review needed (${pendingGates} pending)`, color: 'text-yellow-400', icon: <AlertCircle size={12} /> },
     awaiting_feedback:  { label: 'Analysis complete — Awaiting your feedback', color: 'text-gold-400', icon: null },
     completed:          { label: 'Analysis accepted & complete', color: 'text-green-400', icon: <CheckCircle size={12} /> },
+    cancellation_requested: { label: 'Cancellation requested', color: 'text-yellow-400', icon: <Loader size={12} className="animate-spin" /> },
+    cancelled:          { label: 'Orchestration cancelled', color: 'text-yellow-400', icon: null },
     error:              { label: 'Error occurred', color: 'text-red-400', icon: <AlertCircle size={12} /> },
   }
   const cfg = STATUS_CFG[status] || STATUS_CFG.idle
@@ -49,7 +51,7 @@ export default function App() {
 
   const isIdle = session.status === 'idle'
   const isPreview = session.status === 'preview'
-  const isRunning = ['creating', 'uploading', 'running'].includes(session.status)
+  const isRunning = ['creating', 'uploading', 'running', 'cancellation_requested'].includes(session.status)
   const isAwaitingGate = session.status === 'awaiting_gate'
   const isAwaiting = session.status === 'awaiting_feedback'
   const isCompleted = session.status === 'completed'
@@ -94,6 +96,12 @@ export default function App() {
             />
           </div>
 
+          {['running', 'awaiting_gate'].includes(session.status) && (
+            <button type="button" onClick={session.cancelAnalysis}
+              className="rounded-lg border border-yellow-500/60 px-3 py-2 text-sm text-yellow-300">
+              Cancel analysis
+            </button>
+          )}
           {!isIdle && !isRunning && (
             <button
               onClick={session.reset}
@@ -132,6 +140,12 @@ export default function App() {
           </section>
         )}
 
+        {session.status === 'cancelled' && (
+          <section role="status" className="mb-6 rounded-lg border border-yellow-500/40 p-4 text-slate-200">
+            <h2 className="font-medium">Analysis cancelled</h2>
+            <p className="text-sm">New orchestration dispatch stopped. An in-flight provider request may still complete or incur charges.</p>
+          </section>
+        )}
         {/* Completed banner */}
         {isCompleted && (
           <div className="mb-6 card border border-green-500/30 bg-green-500/5 p-5 flex items-start gap-4 animate-fade-in">
