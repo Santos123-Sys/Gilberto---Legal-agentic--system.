@@ -148,6 +148,34 @@ class LocalPasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=12, max_length=256)
 
 
+def _local_auth_configuration_valid():
+    """Fail-closed deployment preflight; deliberately does not reveal secrets.
+
+    A green /api/ready must not mean that authentication would reject every
+    legitimate user because an upstream secret or browser origin is missing.
+    First-admin bootstrap may still be pending; readiness must allow it.
+    """
+    if settings.AUTH_MODE != "local":
+        return True
+    if len(settings.LOCAL_AUTH_PROXY_SECRET) < 32:
+        return False
+    origin = settings.LOCAL_AUTH_APP_ORIGIN
+    if not isinstance(origin, str) or not origin or origin != origin.strip():
+        return False
+    try:
+        parsed = urlparse(origin)
+        port = parsed.port
+    except ValueError:
+        return False
+    if (not parsed.hostname or parsed.username or parsed.password or
+            parsed.path or parsed.params or parsed.query or parsed.fragment or
+            parsed.geturl() != origin):
+        return False
+    if settings.LOCAL_AUTH_COOKIE_SECURE:
+        return parsed.scheme == "https"
+    return parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1")
+
+
 def _local_only():
     if settings.AUTH_MODE != "local":
         raise HTTPException(status_code=404, detail="Not found")
@@ -310,14 +338,10 @@ def _get_session(session_id: str, principal: Principal) -> dict:
 @app.middleware("http")
 async def checkpoint_mutations(request: Request, call_next):
     if settings.AUTH_MODE == "local" and request.url.path.startswith("/api/") and request.url.path not in ("/api/health", "/api/ready"):
+        if not _local_auth_configuration_valid():
+            return JSONResponse(status_code=503, content={"detail": "Local authentication is not configured"})
         secret = settings.LOCAL_AUTH_PROXY_SECRET
         origin = settings.LOCAL_AUTH_APP_ORIGIN
-        if not secret or len(secret) < 32 or not origin:
-            return JSONResponse(status_code=503, content={"detail": "Local authentication is not configured"})
-        if not settings.LOCAL_AUTH_COOKIE_SECURE and not (
-            origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:")
-        ):
-            return JSONResponse(status_code=503, content={"detail": "Secure cookies are required"})
         supplied = request.headers.get("X-Gilberto-Proxy-Auth", "")
         if not compare_digest(supplied, secret):
             return JSONResponse(status_code=403, content={"detail": "Proxy access denied"})
@@ -444,10 +468,18 @@ async def health():
 async def ready():
     # Liveness and readiness differ: don't route users to an instance that
     # cannot read their persisted legal review checkpoints.
+    if settings.AUTH_MODE == "local":
+        if not _local_auth_configuration_valid():
+            raise HTTPException(status_code=503, detail="Local authentication is not configured")
+        try:
+            with closing(local_identity.connect()) as identity_db:
+                identity_db.execute("SELECT COUNT(*) FROM identity_users").fetchone()
+        except Exception:
+            raise HTTPException(status_code=503, detail="Identity storage is unavailable") from None
     try:
         session_store.is_ready()
     except Exception:
-        raise HTTPException(status_code=503, detail="Session storage is unavailable")
+        raise HTTPException(status_code=503, detail="Session storage is unavailable") from None
     return {"status": "ready"}
 
 
