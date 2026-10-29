@@ -1,6 +1,7 @@
 import React from 'react'
 import { Award, AlertTriangle, CheckSquare, Download, Share2, Shield } from 'lucide-react'
 import { ConfidenceSignal } from './ConfidenceSignal'
+import { LegalAssuranceNotice } from './LegalAssuranceNotice'
 
 function displayValue(value) {
   if (typeof value === 'string' || typeof value === 'number') return String(value)
@@ -20,6 +21,7 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
 
   return (
     <div className="space-y-6">
+      <LegalAssuranceNotice synthesis={synthesis} />
       <p className="text-sm text-slate-300">AI-generated draft. Check cited clauses and legal authorities before relying on the conclusions. Model agreement does not verify legal correctness.</p>
       <details className="card p-4 text-sm">
         <summary className="cursor-pointer text-amber-300 font-medium">Evidence verification checklist (manual)</summary>
