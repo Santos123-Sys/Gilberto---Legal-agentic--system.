@@ -38,7 +38,7 @@ jobs:
       - run: docker build -t gilberto-backup-gateway-smoke .
         working-directory: backup_gateway
   staging-smoke:
-    if: github.head_ref == 'security/phase2-staging-security-smoke-20261029'
+    if: github.head_ref == 'security/phase2-staging-security-smoke-20261029' || github.base_ref == 'release/brlaw-security-staging-20261029'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
