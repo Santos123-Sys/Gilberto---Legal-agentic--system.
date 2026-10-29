@@ -23,6 +23,6 @@ test('authenticated owner can request cancellation and sees unambiguous status',
   await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
   await expect(page.getByRole('button', { name: 'Cancel analysis' })).toBeVisible()
   await page.getByRole('button', { name: 'Cancel analysis' }).click()
-  await expect(page.getByRole('status')).toContainText('Cancellation requested')
+  await expect(page.getByRole('status').filter({ hasText: 'Cancellation requested' }).first()).toBeVisible()
   expect(cancellationCalls).toBe(1)
 })
