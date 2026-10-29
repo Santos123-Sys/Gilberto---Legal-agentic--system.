@@ -122,3 +122,30 @@ class AuthenticatedResourceIsolationTests(unittest.IsolatedAsyncioTestCase):
                     headers=self.authorization(self.owner))
         self.assertEqual(resp.status_code, 503)
         self.assertNotIn("sessions.sqlite", resp.text)
+
+    async def test_anonymous_session_creation_and_sse_subscription_are_denied(self):
+        before = set(main.sessions)
+        self.assertEqual((await self.client.post("/api/sessions",
+            json={"num_rounds": 1})).status_code, 401)
+        self.assertEqual((await self.client.get(
+            f"/api/sessions/{self.sid}/stream?cursor=0")).status_code, 401)
+        self.assertEqual((await self.client.post(
+            f"/api/sessions/{self.sid}/accept")).status_code, 401)
+        self.assertEqual(set(main.sessions), before)
+
+    async def test_owner_checks_survive_database_reload_and_legacy_quarantine(self):
+        main.session_store.save(self.session)
+        main.sessions.clear()
+        mine = await self.client.get(f"/api/sessions/{self.sid}/status",
+            headers=self.authorization(self.owner))
+        self.assertEqual(mine.status_code, 200)
+        theirs = await self.client.get(f"/api/sessions/{self.sid}/status",
+            headers=self.authorization(self.other))
+        self.assertEqual(theirs.status_code, 404)
+        saved = main.sessions[self.sid]
+        del saved["owner_issuer"], saved["owner_subject"]
+        main.session_store.save(saved)
+        main.sessions.clear()
+        legacy = await self.client.get(f"/api/sessions/{self.sid}/results",
+            headers=self.authorization(self.owner))
+        self.assertEqual(legacy.status_code, 404)
