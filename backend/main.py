@@ -46,6 +46,7 @@ from security.oidc import (Principal, AuthenticationRejected, IdentityNotConfigu
 from security.authorization import AccessDenied, require_session_owner
 from security import local_identity
 import backup_operations
+from legal.assurance import assess_claims
 from models.schemas import (
     FeedbackRequest,
     GateDecisionRequest,
@@ -633,6 +634,10 @@ async def get_results(session_id: str, principal: Principal = Depends(current_pr
         "gate_records": engine.get_all_gate_records(),
         "execution_metrics": engine.get_metrics(),
         "partial": session["status"] == "error",
+        "legal_assurance": assess_claims(
+            session.get("document_text", ""),
+            getattr(engine, "legal_evidence_findings", []),
+        ),
     }
 
 

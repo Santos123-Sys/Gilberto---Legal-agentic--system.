@@ -9,7 +9,7 @@ class SessionCheckpointError(RuntimeError):
     """The saved session exists but cannot be safely reconstructed."""
 
 
-ENGINE_FIELDS = ('current_round', 'cluster_summaries', 'devil_advocate_output',
+ENGINE_FIELDS = ('current_round', 'cluster_summaries', 'devil_advocate_output', 'legal_evidence_findings',
                  'master_summaries', 'feedback_agents', 'execution_metrics')
 
 

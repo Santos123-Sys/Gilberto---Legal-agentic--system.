@@ -283,6 +283,7 @@ class DebateEngineV3:
         # State
         self.cluster_summaries: Dict[str, Dict] = {}
         self.devil_advocate_output: Optional[Dict] = None
+        self.legal_evidence_findings: List[Dict] = []
         self.master_summaries: List[Dict] = []
         self.feedback_agents: Dict[str, List[Dict]] = {k: [] for k in CLUSTERS}
         self.gate_evaluator = GateEvaluator()
@@ -476,6 +477,10 @@ class DebateEngineV3:
             prompt = f"Selected workflow: {self.workflow_type}.\n" + prompt
             raw = await self._run_agent(agent_cfg, prompt)
             parsed = AgentAnalysis.model_validate(_safe_json(raw)).model_dump(mode="json")
+            for claim in parsed.get("key_findings", [])[:40]:
+                self.legal_evidence_findings.append({
+                    **claim, "agent": agent_cfg["role"], "round": round_num,
+                })
 
             analysis = {
                 "agent": agent_cfg["role"],

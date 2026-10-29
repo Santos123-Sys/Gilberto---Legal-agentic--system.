@@ -583,7 +583,7 @@ DOCUMENT TO ANALYZE:
 
 INSTRUCTIONS:
 1. Analyze the document through the lens of your specific expertise ONLY.
-2. Cite specific legal provisions (article, law, decree) for every finding.
+2. Cite specific Brazilian legal provisions when applicable; never invent an article or precedent. Classify the evidence as contract_quote, legal_authority or other. Any model-cited law is UNVERIFIED until independently authenticated.
 3. Quote exact contract text as evidence for every flag.
 4. Assign a numerical risk score (0-10) where 0=no risk, 10=critical risk.
 5. Rate your confidence in this assessment (1-5, where 5=very high confidence).

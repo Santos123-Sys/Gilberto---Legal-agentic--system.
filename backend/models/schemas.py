@@ -67,6 +67,7 @@ class AgentFinding(BaseModel):
     status: Literal["OK", "WARNING", "VIOLATION", "INFO"]
     evidence: Optional[str] = None
     legal_basis: Optional[str] = None
+    evidence_kind: Literal["contract_quote", "legal_authority", "other"] = "other"
     confidence: Literal["high", "medium", "low"] = "medium"
 
 
