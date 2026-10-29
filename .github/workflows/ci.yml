@@ -37,5 +37,11 @@ jobs:
         working-directory: frontend
       - run: npm test
         working-directory: frontend
+      - run: npm run test:local
+        working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      # Check the real Railway nginx container and templated same-origin API proxy.
+      - run: docker build --build-arg VITE_AUTH_MODE=local -f Dockerfile -t gilberto-nginx-proxy-check .
+        working-directory: frontend
+      - run: docker run --rm -e PORT=8080 -e GILBERTO_API_UPSTREAM=http://127.0.0.1:8000 -e GILBERTO_PROXY_SECRET=ci-fixture-long-not-a-production-secret gilberto-nginx-proxy-check nginx -t
