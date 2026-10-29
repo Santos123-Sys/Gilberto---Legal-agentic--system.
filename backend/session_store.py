@@ -10,7 +10,8 @@ class SessionCheckpointError(RuntimeError):
 
 
 ENGINE_FIELDS = ('current_round', 'cluster_summaries', 'devil_advocate_output',
-                 'master_summaries', 'feedback_agents', 'execution_metrics')
+                 'master_summaries', 'feedback_agents', 'execution_metrics',
+                 '_legal_evidence_audits')
 
 
 def connect():
@@ -55,7 +56,15 @@ def load(session_id, engine_factory):
         engine = engine_factory(session_id, config['num_agents'], config['num_rounds'], config['workflow_type'])
         engine.review_depth = config.get("review_depth", "full")
         for key in ENGINE_FIELDS:
-            setattr(engine, key, state[key])
+            if key == '_legal_evidence_audits':
+                # Older checkpoints predate the legal audit and must stay
+                # readable without inventing retrospectively reviewed claims.
+                evidence = state.get(key, [])
+                if not isinstance(evidence, list):
+                    raise ValueError("Invalid persisted legal audit")
+                setattr(engine, key, evidence)
+            else:
+                setattr(engine, key, state[key])
         engine.gate_evaluator.gate_records = state['gate_records']
         engine.gate_evaluator.pending_gates = [g for g in state['gate_records'] if g['status'] == 'pending']
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
