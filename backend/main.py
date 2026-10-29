@@ -39,6 +39,9 @@ from financial.planning import estimate_plan
 from operational.metrics import summarize_sessions
 import session_store
 import run_control
+from agents.workspace_registry import roster_for_engine, coordination_roster
+from workspace_events import project_event, state_snapshot, stream_end
+from observability import from_environment
 from provider import ProviderError, backup_configured
 from document_extractor import DocumentExtractionError, extract_document_text
 from engines.debate_engine_v3 import DebateEngineV3, ReanalysisRequested, WorkflowError
@@ -77,6 +80,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def start_backup_scheduler():
+    app.state.telemetry = from_environment()
     if settings.AUTH_MODE == "local":
         # The empty identity/checkpoint stores must exist before first backup.
         with closing(local_identity.connect()):
@@ -89,6 +93,9 @@ async def start_backup_scheduler():
 
 @app.on_event("shutdown")
 async def stop_backup_scheduler():
+    telemetry = getattr(app.state, "telemetry", None)
+    if telemetry is not None:
+        telemetry.close()
     task = getattr(app.state, "backup_task", None)
     if task is not None:
         task.cancel()
@@ -363,7 +370,7 @@ async def checkpoint_mutations(request: Request, call_next):
         if len(segments) == 4 and segments[:2] == ["api", "sessions"]:
             session = sessions.get(segments[2])
             if session is not None:
-                session_store.save(session)
+                _checkpoint(session)
     return response
 
 
@@ -371,7 +378,34 @@ async def checkpoint_mutations(request: Request, call_next):
 #  BACKGROUND TASK RUNNERS
 # ─────────────────────────────────────────────
 
+def _checkpoint(session):
+    """Persist first; optional observability never controls legal execution."""
+    session_store.save(session)
+    telemetry = getattr(app.state, "telemetry", None)
+    if telemetry is not None and telemetry.enabled:
+        try:
+            cursor = session.get("telemetry_cursor", 0)
+            for event in session["events"][cursor:]:
+                telemetry.submit(session["id"], event)
+            session["telemetry_cursor"] = len(session["events"])
+        except Exception:
+            pass  # Never expose exporter exceptions or fail legal review.
+
+
 def _append_event(session, event):
+    # Stable presentation IDs are joined from the actual engine role, including
+    # dynamically configured feedback advocates. No frontend role invention.
+    event = deepcopy(event)
+    cid = event.get("cluster")
+    role = event.get("agent") or event.get("voter")
+    if cid in CLUSTERS and role:
+        cluster = roster_for_engine(session["engine"], [cid])[0]
+        match = next((a for a in cluster["agents"] + [cluster["manager"]] if a["role"] == role), None)
+        if match:
+            event["agent_id"] = match["id"]
+    event.setdefault("run_id", session["id"])
+    event.setdefault("revision", session.get("feedback_rounds", 0))
+    event.setdefault("timestamp", datetime.now().isoformat())
     session["events"].append({**deepcopy(event), **run_control.synchronize(session),
                               "event_id": len(session["events"]) + 1,
                               "session_id": session["id"]})
@@ -386,7 +420,7 @@ def _acknowledge_pause(session):
         session["pause_acknowledged"] = True
         _append_event(session, {"type": "RUN_PAUSED", "timestamp": datetime.now().isoformat(),
                                "message": "Provider dispatch is paused. Completed findings and pending reviews are retained."})
-        session_store.save(session)
+        _checkpoint(session)
 
 
 def _check_control_version(session, expected_version):
@@ -404,7 +438,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
     if session.get("run_control") == "preparing":
         session["run_control"] = "running"
         _append_event(session, {"type": "RUN_STARTED", "timestamp": datetime.now().isoformat()})
-        session_store.save(session)
+        _checkpoint(session)
     try:
         while True:
             stream = (engine.run_debate(document_text) if feedback is None else
@@ -435,7 +469,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                     elif kind == "ERROR":
                         raise RuntimeError(event.get("message", "Analysis failed"))
                     _append_event(session, event)
-                    session_store.save(session)
+                    _checkpoint(session)
                 break
             except ReanalysisRequested as exc:
                 if session["feedback_rounds"] >= settings.MAX_FEEDBACK_ROUNDS:
@@ -466,7 +500,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
         engine._running = False
         session["execution_metrics"] = engine.get_metrics()
         session["gate_records"] = engine.get_all_gate_records()
-        session_store.save(session)
+        _checkpoint(session)
 
 
 # ─────────────────────────────────────────────
@@ -550,6 +584,8 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
     config["active_clusters"] = [{"id": cid, "name": CLUSTERS[cid]["name"],
                                   "agents": 1 if request.review_depth == "focused" else len(CLUSTERS[cid]["agents"])} for cid in active]
     config["num_agents"] = sum(item["agents"] for item in config["active_clusters"])
+    config["agent_roster"] = roster_for_engine(engine, active)
+    config["coordination_roster"] = coordination_roster()
     config["initial_model_calls"] = sum((2 * c["agents"] + 1) if c["agents"] > 1 else 2 for c in config["active_clusters"]) * request.num_rounds + 2 * request.num_rounds
     config["max_feedback_rounds"] = settings.MAX_FEEDBACK_ROUNDS
     config["model_call_budget"] = settings.MAX_MODEL_CALLS
@@ -593,7 +629,7 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
     }
 
     # Persist the new session even when created outside the HTTP middleware.
-    session_store.save(sessions[session_id])
+    _checkpoint(sessions[session_id])
     return SessionResponse(
         session_id=session_id,
         status="created",
@@ -639,7 +675,7 @@ async def start_session(session_id: str, document: UploadFile = File(...),
     session["run_control"] = "preparing"
     session["started_at"] = datetime.now().isoformat()
     _append_event(session, {"type": "RUN_PREPARING", "timestamp": session["started_at"]})
-    session_store.save(session)
+    _checkpoint(session)
 
     session["task"] = asyncio.create_task(_run_analysis_bg(session_id, document_text))
 
@@ -655,6 +691,7 @@ async def start_session(session_id: str, document: UploadFile = File(...),
 
 @app.get("/api/sessions/{session_id}/stream")
 async def stream_events(session_id: str, request: Request, cursor: int = Query(default=0, ge=0),
+                        protocol: str = Query(default="native", pattern="^(native|ag-ui)$"),
                         principal: Principal = Depends(current_principal)):
     """Server-Sent Events stream with cursor-based resume."""
     session = _get_session(session_id, principal)
@@ -664,6 +701,9 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
     async def generator():
         session = sessions[session_id]
         idx = cursor
+
+        if protocol == "ag-ui":
+            yield f"data: {json.dumps(state_snapshot(session))}\n\n"
 
         heartbeat_at = asyncio.get_running_loop().time()
         while not await request.is_disconnected():
@@ -676,11 +716,13 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
             events = session["events"]
 
             while idx < len(events):
-                yield f"id: {idx + 1}\ndata: {json.dumps(events[idx])}\n\n"
+                wire_event = project_event(events[idx]) if protocol == "ag-ui" else events[idx]
+                yield f"id: {idx + 1}\ndata: {json.dumps(wire_event)}\n\n"
                 idx += 1
 
             if session["status"] in ("completed", "error", "cancelled"):
-                yield f"data: {json.dumps({'type': 'STREAM_END', 'timestamp': datetime.now().isoformat()})}\n\n"
+                terminal = stream_end(session) if protocol == "ag-ui" else {'type': 'STREAM_END', 'timestamp': datetime.now().isoformat()}
+                yield f"data: {json.dumps(terminal)}\n\n"
                 break
 
             if asyncio.get_running_loop().time() - heartbeat_at >= 15:
@@ -703,9 +745,13 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
 async def get_status(session_id: str, principal: Principal = Depends(current_principal)):
     """Get current session status."""
     session = _get_session(session_id, principal)
+    config = deepcopy(session["config"])
+    config["agent_roster"] = roster_for_engine(session["engine"], [c["id"] for c in config.get("active_clusters", [])])
+    config["coordination_roster"] = coordination_roster()
     return {
         "session_id": session_id,
         "status": session["status"],
+        "config": config,
         "current_round": session["engine"].current_round,
         "total_rounds": session["config"]["num_rounds"],
         "events_count": len(session["events"]),
@@ -866,7 +912,7 @@ def _finish_cancel(session):
     _append_event(session, {"type": "CANCELLED",
                             "message": "Orchestration stopped. An in-flight provider call may still finish.",
                             "timestamp": datetime.now().isoformat()})
-    session_store.save(session)
+    _checkpoint(session)
 
 
 @app.post("/api/sessions/{session_id}/pause")
@@ -884,7 +930,7 @@ async def pause_dispatch(session_id: str, principal: Principal = Depends(current
     session["engine"]._dispatch_allowed.clear()
     _append_event(session, {"type": "RUN_PAUSE_REQUESTED", "timestamp": datetime.now().isoformat(),
                             "message": "New AI requests paused at the next safe dispatch boundary. An in-flight request may finish."})
-    session_store.save(session)
+    _checkpoint(session)
     _acknowledge_pause(session)
     return run_control.response(session)
 
@@ -902,12 +948,12 @@ async def resume_dispatch(session_id: str, principal: Principal = Depends(curren
     session["run_control"] = "resuming"
     session["pause_acknowledged"] = False
     _append_event(session, {"type": "RUN_RESUMING", "timestamp": datetime.now().isoformat()})
-    session_store.save(session)
+    _checkpoint(session)
     session["run_control"] = "running"
     session["engine"]._dispatch_allowed.set()
     _append_event(session, {"type": "RUN_RESUMED", "timestamp": datetime.now().isoformat(),
                             "message": "New model dispatch resumed by the session owner."})
-    session_store.save(session)
+    _checkpoint(session)
     return run_control.response(session)
 
 
@@ -942,7 +988,7 @@ async def cast_human_vote(session_id: str, request: HumanVoteRequest,
     votes.append(record)
     _append_event(session, {"type": "HUMAN_VOTE_RECORDED", **record,
                             "target_event_id": request.event_id})
-    session_store.save(session)
+    _checkpoint(session)
     return {"status": "recorded", "vote": record}
 
 
@@ -970,10 +1016,10 @@ async def cancel_session(session_id: str, principal: Principal = Depends(current
     _append_event(session, {"type": "CANCEL_REQUESTED",
                             "message": "Stopping new model and tool dispatch",
                             "timestamp": datetime.now().isoformat()})
-    session_store.save(session)
+    _checkpoint(session)
     session["cancellation"]["state"] = "stopping"
     _append_event(session, {"type": "RUN_STOPPING", "timestamp": datetime.now().isoformat()})
-    session_store.save(session)
+    _checkpoint(session)
     task = session.get("task")
     if task and not task.done():
         task.add_done_callback(lambda _: _finish_cancel(session))
