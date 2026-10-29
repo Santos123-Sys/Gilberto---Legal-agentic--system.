@@ -22,6 +22,19 @@ class Settings(BaseSettings):
     TEMPERATURE: float = float(os.getenv("TEMPERATURE", "0.1"))
     MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "4096"))
 
+    # Managed OIDC or invite-only local accounts. Never fall back to anonymous.
+    AUTH_MODE: str = "oidc"
+    LOCAL_AUTH_APP_ORIGIN: str = ""
+    LOCAL_AUTH_PROXY_SECRET: str = ""
+    LOCAL_AUTH_COOKIE_SECURE: bool = True
+    LOCAL_BOOTSTRAP_TOKEN_SHA256: str = ""
+    LOCAL_BOOTSTRAP_EXPIRES_AT: int = 0
+
+    # OIDC API verifier (never allow anonymous fallback).
+    OIDC_ISSUER: str = ""
+    OIDC_AUDIENCE: str = ""
+    OIDC_JWKS_URL: str = ""
+
     # ── Server ───────────────────────────────
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))

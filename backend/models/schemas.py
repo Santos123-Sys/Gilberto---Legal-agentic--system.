@@ -208,7 +208,7 @@ class SessionCreateRequest(BaseModel):
     document_type: Optional[str] = None
     jurisdiction: str = "BR"
     urgency: Literal["immediate", "high", "normal", "low"] = "normal"
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None  # Legacy input; never used for ownership
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
