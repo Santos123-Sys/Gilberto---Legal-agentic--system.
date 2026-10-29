@@ -19,6 +19,7 @@ Endpoints:
 
 import asyncio
 from copy import deepcopy
+from contextlib import closing
 import json
 import uuid
 from functools import lru_cache
@@ -72,8 +73,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def start_backup_scheduler():
-    if settings.AUTH_MODE == "local" and backup_operations.enabled():
-        app.state.backup_task = asyncio.create_task(backup_operations.periodic_backup())
+    if settings.AUTH_MODE == "local":
+        # The empty identity/checkpoint stores must exist before first backup.
+        with closing(local_identity.connect()):
+            pass
+        with closing(session_store.connect()):
+            pass
+        if backup_operations.enabled():
+            app.state.backup_task = asyncio.create_task(backup_operations.periodic_backup())
 
 
 @app.on_event("shutdown")

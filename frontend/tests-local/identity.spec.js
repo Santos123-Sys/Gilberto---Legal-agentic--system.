@@ -158,3 +158,29 @@ test('non-administrator cannot see privileged backup controls', async ({ page })
   await page.getByRole('button', { name: 'Account' }).click()
   await expect(page.getByRole('button', { name: 'Backup now' })).toHaveCount(0)
 })
+
+
+test('first administrator setup requires its one-time secret and password confirmation', async ({ page }) => {
+  await mockIdentity(page)
+  await page.route('**/api/auth/bootstrap-status', async route => {
+    await route.fulfill({ json: { available: true } })
+  })
+  await page.route('**/api/auth/bootstrap', async route => {
+    const body = route.request().postDataJSON()
+    expect(body.email).toBe(loggedInUser.email)
+    expect(body.password).toBe('New-Administrator-Passphrase2026')
+    expect(body.bootstrap_token).toBe('fixture-setup-token-only-00000000000000000000000')
+    await route.fulfill({ json: { user: { ...loggedInUser, role: 'admin' },
+                                 status: 'administrator_created' } })
+  })
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Create first administrator' })).toBeVisible()
+  await page.getByLabel('Email', { exact: true }).fill(loggedInUser.email)
+  await page.getByLabel('Password', { exact: true }).fill('New-Administrator-Passphrase2026')
+  await page.getByLabel('Confirm administrator password').fill('New-Administrator-Passphrase2026')
+  await page.getByLabel('One-time setup token').fill('fixture-setup-token-only-00000000000000000000000')
+  await page.getByRole('button', { name: 'Create first administrator' }).click()
+  await expect(page.locator('#doc-upload')).toBeVisible()
+  await page.getByRole('button', { name: 'Account' }).click()
+  await expect(page.getByRole('button', { name: 'Backup now' })).toBeVisible()
+})

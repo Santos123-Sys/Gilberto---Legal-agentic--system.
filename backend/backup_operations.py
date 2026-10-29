@@ -95,7 +95,11 @@ async def periodic_backup():
                 await verify_latest_offsite()
                 LOG.info("Encrypted off-project backup downloaded and restored in isolation")
             except Exception as exc:
-                LOG.error("Backup attempt failed (%s)", type(exc).__name__)
+                # All BackupError messages are constant operator-safe text.
+                if isinstance(exc, recovery.BackupError):
+                    LOG.error("Backup integrity or transport failure: %s", str(exc))
+                else:
+                    LOG.error("Backup attempt failed (%s)", type(exc).__name__)
         try:
             hours = int(os.environ.get("BACKUP_INTERVAL_HOURS", "24"))
         except ValueError:
