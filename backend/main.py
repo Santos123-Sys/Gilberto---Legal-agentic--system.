@@ -26,9 +26,12 @@ from time import time
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, Field
+from hmac import compare_digest
+from urllib.parse import urlparse
 
 from config import settings
 import session_store
@@ -40,6 +43,7 @@ from agents.cluster_definitions import CLUSTERS
 from security.oidc import (Principal, AuthenticationRejected, IdentityNotConfigured,
                            build_jwks_resolver, verify_access_token)
 from security.authorization import AccessDenied, require_session_owner
+from security import local_identity
 from models.schemas import (
     FeedbackRequest,
     GateDecisionRequest,
@@ -79,6 +83,14 @@ def _trusted_key_resolver(issuer: str, audience: str, jwks_url: str):
 
 def current_principal(request: Request) -> Principal:
     """Fail-closed bearer validation for every resource API, without query tokens."""
+    if settings.AUTH_MODE == "local":
+        entry = local_identity.resolve_session(request.cookies.get(local_identity.COOKIE_NAME))
+        if not entry:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        return Principal(issuer=local_identity.LOCAL_ISSUER,
+                         subject=entry["id"], expires_at=entry["expires_at"])
+    if settings.AUTH_MODE != "oidc":
+        raise HTTPException(status_code=503, detail="Authentication mode is invalid")
     issuer, audience, keys = settings.OIDC_ISSUER, settings.OIDC_AUDIENCE, settings.OIDC_JWKS_URL
     if not issuer or not audience or not keys:
         raise HTTPException(status_code=503, detail="Authentication is not configured")
@@ -91,6 +103,80 @@ def current_principal(request: Request) -> Principal:
     except AuthenticationRejected:
         raise HTTPException(status_code=401, detail="Authentication required",
                             headers={"WWW-Authenticate": "Bearer"}) from None
+
+
+
+# Authentication routes use short-lived opaque cookie sessions and never
+# store client credentials, access tokens or API keys in localStorage.
+class LocalLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class LocalPasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+def _local_only():
+    if settings.AUTH_MODE != "local":
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+def _issue_cookie(response: Response, token: str):
+    response.set_cookie(local_identity.COOKIE_NAME, token, max_age=local_identity.SESSION_TTL,
+                        secure=settings.LOCAL_AUTH_COOKIE_SECURE, httponly=True,
+                        samesite="strict", path="/")
+
+
+@app.post("/api/auth/login")
+async def local_login(body: LocalLoginRequest, response: Response, request: Request):
+    _local_only()
+    try:
+        token, user = local_identity.login(body.email, body.password,
+                         request.client.host if request.client else "unknown")
+    except local_identity.LoginRejected as exc:
+        if exc.throttled:
+            raise HTTPException(status_code=429, detail="Too many attempts. Try again later.",
+                                headers={"Retry-After": "900"}) from None
+        raise HTTPException(status_code=401, detail="Invalid email or password") from None
+    _issue_cookie(response, token)
+    return {"user": user}
+
+
+@app.get("/api/auth/me")
+async def local_me(request: Request):
+    _local_only()
+    account = local_identity.resolve_session(request.cookies.get(local_identity.COOKIE_NAME))
+    if not account:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return {"user": {"id": account["id"], "email": account["email"]}}
+
+
+@app.post("/api/auth/logout")
+async def local_logout(request: Request, response: Response):
+    _local_only()
+    local_identity.revoke_session(request.cookies.get(local_identity.COOKIE_NAME))
+    response.delete_cookie(local_identity.COOKIE_NAME, path="/",
+                           secure=settings.LOCAL_AUTH_COOKIE_SECURE, httponly=True,
+                           samesite="strict")
+    return {"status": "signed_out"}
+
+
+@app.post("/api/auth/change-password")
+async def local_change_password(body: LocalPasswordChangeRequest,
+                                request: Request, response: Response):
+    _local_only()
+    entry = local_identity.resolve_session(request.cookies.get(local_identity.COOKIE_NAME))
+    if not entry:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    try:
+        token = local_identity.change_password(entry["id"], body.current_password,
+                                               body.new_password)
+    except local_identity.PasswordRejected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    _issue_cookie(response, token)
+    return {"status": "password_changed"}
 
 
 def _get_session(session_id: str, principal: Principal) -> dict:
@@ -114,8 +200,23 @@ def _get_session(session_id: str, principal: Principal) -> dict:
 
 @app.middleware("http")
 async def checkpoint_mutations(request: Request, call_next):
+    if settings.AUTH_MODE == "local" and request.url.path.startswith("/api/") and request.url.path not in ("/api/health", "/api/ready"):
+        secret = settings.LOCAL_AUTH_PROXY_SECRET
+        origin = settings.LOCAL_AUTH_APP_ORIGIN
+        if not secret or len(secret) < 32 or not origin:
+            return JSONResponse(status_code=503, content={"detail": "Local authentication is not configured"})
+        if not settings.LOCAL_AUTH_COOKIE_SECURE and not (
+            origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:")
+        ):
+            return JSONResponse(status_code=503, content={"detail": "Secure cookies are required"})
+        supplied = request.headers.get("X-Gilberto-Proxy-Auth", "")
+        if not compare_digest(supplied, secret):
+            return JSONResponse(status_code=403, content={"detail": "Proxy access denied"})
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            if request.headers.get("Origin") != origin:
+                return JSONResponse(status_code=403, content={"detail": "Untrusted request origin"})
     response = await call_next(request)
-    if request.url.path.startswith("/api/sessions"):
+    if request.url.path.startswith(("/api/sessions", "/api/auth")):
         # Legal documents and derived results must not be cached by browsers or proxies.
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
@@ -361,6 +462,10 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
         while not await request.is_disconnected():
             if principal.expires_at is not None and time() >= principal.expires_at:
                 break
+            if settings.AUTH_MODE == "local":
+                active = local_identity.resolve_session(request.cookies.get(local_identity.COOKIE_NAME))
+                if not active or active["id"] != principal.subject:
+                    break
             events = session["events"]
 
             while idx < len(events):
