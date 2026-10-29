@@ -84,7 +84,7 @@ def _trusted_key_resolver(issuer: str, audience: str, jwks_url: str):
 def current_principal(request: Request) -> Principal:
     """Fail-closed bearer validation for every resource API, without query tokens."""
     if settings.AUTH_MODE == "local":
-        entry = local_identity.resolve_session(request.cookies.get(local_identity.COOKIE_NAME))
+        entry = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
         if not entry:
             raise HTTPException(status_code=401, detail="Authentication required")
         return Principal(issuer=local_identity.LOCAL_ISSUER,
@@ -124,7 +124,7 @@ def _local_only():
 
 
 def _issue_cookie(response: Response, token: str):
-    response.set_cookie(local_identity.COOKIE_NAME, token, max_age=local_identity.SESSION_TTL,
+    response.set_cookie(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE), token, max_age=local_identity.SESSION_TTL,
                         secure=settings.LOCAL_AUTH_COOKIE_SECURE, httponly=True,
                         samesite="strict", path="/")
 
@@ -147,7 +147,7 @@ async def local_login(body: LocalLoginRequest, response: Response, request: Requ
 @app.get("/api/auth/me")
 async def local_me(request: Request):
     _local_only()
-    account = local_identity.resolve_session(request.cookies.get(local_identity.COOKIE_NAME))
+    account = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
     if not account:
         raise HTTPException(status_code=401, detail="Authentication required")
     return {"user": {"id": account["id"], "email": account["email"]}}
@@ -156,8 +156,8 @@ async def local_me(request: Request):
 @app.post("/api/auth/logout")
 async def local_logout(request: Request, response: Response):
     _local_only()
-    local_identity.revoke_session(request.cookies.get(local_identity.COOKIE_NAME))
-    response.delete_cookie(local_identity.COOKIE_NAME, path="/",
+    local_identity.revoke_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
+    response.delete_cookie(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE), path="/",
                            secure=settings.LOCAL_AUTH_COOKIE_SECURE, httponly=True,
                            samesite="strict")
     return {"status": "signed_out"}
@@ -167,7 +167,7 @@ async def local_logout(request: Request, response: Response):
 async def local_change_password(body: LocalPasswordChangeRequest,
                                 request: Request, response: Response):
     _local_only()
-    entry = local_identity.resolve_session(request.cookies.get(local_identity.COOKIE_NAME))
+    entry = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
     if not entry:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
@@ -463,7 +463,7 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
             if principal.expires_at is not None and time() >= principal.expires_at:
                 break
             if settings.AUTH_MODE == "local":
-                active = local_identity.resolve_session(request.cookies.get(local_identity.COOKIE_NAME))
+                active = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
                 if not active or active["id"] != principal.subject:
                     break
             events = session["events"]

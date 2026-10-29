@@ -206,3 +206,26 @@ class LocalIdentityAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r.status_code, 401)
         self.assertNotIn("set-cookie", r.headers)
         self.assertEqual((await self.client.get("/api/auth/me")).status_code, 401)
+
+    async def test_loopback_development_cookie_is_not_host_prefixed(self):
+        with patch.object(settings, "LOCAL_AUTH_APP_ORIGIN", "http://127.0.0.1:5173"), \
+             patch.object(settings, "LOCAL_AUTH_COOKIE_SECURE", False):
+            dev = httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=main.app),
+                base_url="http://127.0.0.1:5173",
+                headers={"X-Gilberto-Proxy-Auth": "a" * 48})
+            try:
+                response = await dev.post("/api/auth/login", json={
+                    "email": "a@example.com", "password": "Strong!Password-2026A"},
+                    headers={"Origin": "http://127.0.0.1:5173"})
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertIn(local_identity.DEV_COOKIE_NAME, response.headers["set-cookie"])
+                self.assertNotIn("__Host-", response.headers["set-cookie"])
+                self.assertEqual((await dev.get("/api/auth/me")).status_code, 200)
+            finally:
+                await dev.aclose()
+
+    async def test_insecure_cookie_must_not_run_on_public_host(self):
+        with patch.object(settings, "LOCAL_AUTH_COOKIE_SECURE", False):
+            response = await self.client.get("/api/auth/me")
+        self.assertEqual(response.status_code, 503)
