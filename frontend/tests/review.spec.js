@@ -150,3 +150,16 @@ test('new round does not inherit completed workstream score or status from prior
   await expect(page.getByText('9.0', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('agent workspace lists only the configured specialist scope', async ({ page }) => {
+  const errors = await setup(page)
+  await emit(page, [
+    { event_id: 1, type: 'MASTER_MANAGER_COMPLETE', summary: synthesis },
+    { event_id: 2, type: 'DEBATE_COMPLETE' },
+  ])
+  const workspace = page.getByRole('region', { name: 'Agent workspace' })
+  await expect(workspace.getByRole('heading', { name: 'Foundation', exact: true })).toBeVisible()
+  await expect(workspace.getByRole('heading', { name: 'Compliance', exact: true })).toHaveCount(0)
+  await expect(workspace.getByRole('heading', { name: 'Financial Risk', exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
