@@ -185,6 +185,13 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
   )
 }
 
+// Tailwind only generates classes that appear as complete strings in source.
+const SELECTED_DECISION_CLASSES = {
+  green: 'border-green-500 bg-green-500/10 text-green-400',
+  yellow: 'border-yellow-500 bg-yellow-500/10 text-yellow-400',
+  red: 'border-red-500 bg-red-500/10 text-red-400',
+}
+
 function DecisionButton({ selected, onClick, icon, label, color }) {
   return (
     <button
@@ -193,7 +200,7 @@ function DecisionButton({ selected, onClick, icon, label, color }) {
       onClick={onClick}
       className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all ${
         selected
-          ? `border-${color}-500 bg-${color}-500/10 text-${color}-400`
+          ? SELECTED_DECISION_CLASSES[color]
           : 'border-slate-700 text-slate-500 hover:border-slate-600'
       }`}
     >
