@@ -435,6 +435,8 @@ class DebateEngineV3:
                 if isinstance(exc, ProviderError):
                     self._provider_failure = exc
                 task_trace["error_code"] = exc.code if isinstance(exc, ProviderError) else "execution_error"
+                if isinstance(exc, ProviderError) and exc.http_status is not None:
+                    task_trace["provider_http_status"] = exc.http_status
                 task_trace["status"] = "failed"
                 raise
             finally:
