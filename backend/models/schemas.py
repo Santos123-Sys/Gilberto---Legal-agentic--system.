@@ -207,6 +207,8 @@ class SessionCreateRequest(BaseModel):
     num_rounds: int = Field(default=1, ge=1, le=3)
     document_type: Optional[str] = None
     jurisdiction: Literal["BR"] = "BR"  # This product supports Brazilian law exclusively.
+    provider_mode: Literal["primary", "backup"] = "primary"
+    backup_consent: bool = False  # Explicit owner approval before transfer to a different vendor.
     urgency: Literal["immediate", "high", "normal", "low"] = "normal"
     user_id: Optional[str] = None  # Legacy input; never used for ownership
     metadata: Dict[str, Any] = Field(default_factory=dict)
