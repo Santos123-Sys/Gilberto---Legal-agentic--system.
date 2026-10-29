@@ -169,6 +169,7 @@ export default function App() {
               connectionState={session.connectionState}
               lastEventAt={session.lastEventAt}
               onReconnect={session.reconnect}
+              status={session.status}
             />
             <details className="card p-4">
               <summary className="cursor-pointer text-sm text-slate-300">Show specialist status and scores</summary>
@@ -186,6 +187,7 @@ export default function App() {
               connectionState={session.connectionState}
               lastEventAt={session.lastEventAt}
               onReconnect={session.reconnect}
+              status={session.status}
             />
           </div>
         )}

@@ -63,7 +63,8 @@ function currentRoundEvents(events) {
   return latestStart >= 0 ? events.slice(latestStart) : events
 }
 
-export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, connectionState, lastEventAt, onReconnect }) {
+export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, connectionState, lastEventAt, onReconnect, status = 'running' }) {
+  const stopped = status === 'error'
   const activeEvents = currentRoundEvents(events)
   const currentStage = deriveStage(activeEvents)
   const roundCount = Math.max(1, Number(totalRounds) || 1)
@@ -87,9 +88,9 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-gold-400">Live analysis</p>
-            <p className="sr-only" role="status">{STAGES[currentStage].label}</p>
-            <h2 className="font-display text-2xl text-slate-100 mt-1">Your legal teams are working</h2>
-            <p className="text-sm text-slate-400 mt-2 max-w-2xl">Follow the meaningful stages of the debate here. The final analysis and any review requests will appear in this workspace.</p>
+            <p className="sr-only" role="status">{stopped ? 'Analysis stopped' : STAGES[currentStage].label}</p>
+            <h2 className="font-display text-2xl text-slate-100 mt-1">{stopped ? 'Analysis stopped — review incomplete' : 'Your legal teams are working'}</h2>
+            <p className="text-sm text-slate-400 mt-2 max-w-2xl">{stopped ? 'Only previously received findings are shown. This is not an accepted or fully verified legal analysis.' : 'Follow the meaningful stages of the debate here. The final analysis and any review requests will appear in this workspace.'}</p>
           </div>
           <div className="rounded-xl border border-slate-700/70 bg-slate-900/60 px-4 py-3 min-w-44">
             <div className={`flex items-center gap-2 text-xs ${connection.className}`}>
@@ -107,7 +108,7 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mt-6">
           {STAGES.map((stage, index) => {
             const done = index < currentStage
-            const active = index === currentStage
+            const active = !stopped && index === currentStage
             return (
               <div key={stage.id} className={`rounded-xl border p-3 min-h-28 ${active ? 'border-gold-500/50 bg-gold-500/10' : done ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-slate-700/60 bg-slate-900/40'}`}>
                 <div className="flex items-center gap-2">
