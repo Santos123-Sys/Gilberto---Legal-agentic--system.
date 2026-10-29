@@ -206,7 +206,7 @@ class SessionCreateRequest(BaseModel):
     num_agents: int = Field(default=20, ge=1, le=100)  # Legacy input; actual team size is returned.
     num_rounds: int = Field(default=1, ge=1, le=3)
     document_type: Optional[str] = None
-    jurisdiction: str = "BR"
+    jurisdiction: Literal["BR"] = "BR"  # This product supports Brazilian law exclusively.
     urgency: Literal["immediate", "high", "normal", "low"] = "normal"
     user_id: Optional[str] = None  # Legacy input; never used for ownership
     metadata: Dict[str, Any] = Field(default_factory=dict)
