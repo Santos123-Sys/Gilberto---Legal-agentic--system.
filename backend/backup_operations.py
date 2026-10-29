@@ -92,6 +92,8 @@ async def periodic_backup():
         if enabled():
             try:
                 await run_backup()
+                await verify_latest_offsite()
+                LOG.info("Encrypted off-project backup downloaded and restored in isolation")
             except Exception as exc:
                 LOG.error("Backup attempt failed (%s)", type(exc).__name__)
         try:

@@ -12,6 +12,8 @@ export function LocalAuthGate({ children }) {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [backupStatus, setBackupStatus] = useState(null)
+  const [backupMessage, setBackupMessage] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -99,6 +101,32 @@ export function LocalAuthGate({ children }) {
     } finally {
       setBusy(false)
     }
+  }
+
+  const refreshBackupStatus = async () => {
+    const response = await fetch('/api/admin/backups/status', {
+      credentials: 'same-origin', cache: 'no-store',
+    })
+    if (!response.ok) throw new Error('Backup status is unavailable')
+    setBackupStatus(await response.json())
+  }
+
+  const backupAction = async action => {
+    setBusy(true)
+    setBackupMessage('')
+    try {
+      const result = await fetch('/api/admin/backups/' + action, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      })
+      if (!result.ok) throw new Error('The backup operation could not be completed.')
+      const payload = await result.json()
+      setBackupMessage(payload.status === 'restored_and_verified'
+        ? 'Isolated backup restore verified successfully.'
+        : 'Encrypted backup uploaded successfully.')
+      await refreshBackupStatus()
+    } catch (error) {
+      setBackupMessage(error.message)
+    } finally { setBusy(false) }
   }
 
   const changePassword = async event => {
@@ -191,6 +219,32 @@ export function LocalAuthGate({ children }) {
             Update password
           </button>
         </form>
+        {user?.role === 'admin' && <div className="mt-5 border-t border-slate-700 pt-4 space-y-3">
+          <h3 className="text-base font-medium">Encrypted backup and recovery</h3>
+          <p className="text-xs text-slate-400">
+            Only administrators can upload backups and run isolated restore tests.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={busy} onClick={() =>
+              refreshBackupStatus().catch(error => setBackupMessage(error.message))}
+              className="rounded border border-slate-600 px-3 py-2 text-xs">Backup status</button>
+            <button type="button" disabled={busy} onClick={() => backupAction('run')}
+              className="rounded border border-slate-600 px-3 py-2 text-xs">Backup now</button>
+            <button type="button" disabled={busy} onClick={() => backupAction('verify')}
+              className="rounded border border-slate-600 px-3 py-2 text-xs">Verify isolated restore</button>
+          </div>
+          {backupMessage && <p role="status" className="text-xs">{backupMessage}</p>}
+          {backupStatus && <dl className="space-y-1 text-xs">
+            <div><dt className="inline text-slate-400">Automatic backup: </dt>
+              <dd className="inline">{backupStatus.enabled ? 'Enabled' : 'Disabled'}</dd></div>
+            <div><dt className="inline text-slate-400">Last upload: </dt>
+              <dd className="inline">{backupStatus.last_success_at
+                ? new Date(backupStatus.last_success_at * 1000).toLocaleString() : 'Not verified'}</dd></div>
+            <div><dt className="inline text-slate-400">Last restore test: </dt>
+              <dd className="inline">{backupStatus.last_verify_at
+                ? new Date(backupStatus.last_verify_at * 1000).toLocaleString() : 'Not verified'}</dd></div>
+          </dl>}
+        </div>}
       </section>
     )}
   </>

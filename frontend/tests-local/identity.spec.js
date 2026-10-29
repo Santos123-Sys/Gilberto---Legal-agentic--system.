@@ -6,6 +6,7 @@ async function mockIdentity(page, options = {}) {
   const calls = []
   let loggedIn = false
   let currentPassword = 'Correct-Strong-Password-2026'
+  const effectiveUser = options.admin ? { ...loggedInUser, role: 'admin' } : loggedInUser
   await page.route('**/api/**', async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -15,7 +16,7 @@ async function mockIdentity(page, options = {}) {
     expect(request.headers().authorization).toBeUndefined()
     if (path === '/api/auth/me') {
       await route.fulfill(loggedIn
-        ? { json: { user: loggedInUser } }
+        ? { json: { user: effectiveUser } }
         : { status: 401, json: { detail: 'Authentication required' } })
       return
     }
@@ -23,7 +24,7 @@ async function mockIdentity(page, options = {}) {
       const body = request.postDataJSON()
       if (body.email === loggedInUser.email && body.password === currentPassword) {
         loggedIn = true
-        await route.fulfill({ json: { user: loggedInUser } })
+        await route.fulfill({ json: { user: effectiveUser } })
       } else {
         await route.fulfill({ status: options.throttle ? 429 : 401, json: {
           detail: options.throttle ? 'Too many attempts' : 'Invalid credentials',
@@ -44,6 +45,21 @@ async function mockIdentity(page, options = {}) {
         currentPassword = body.new_password
         await route.fulfill({ json: { status: 'password_changed' } })
       }
+      return
+    }
+    if (path === '/api/admin/backups/status') {
+      await route.fulfill({ json: {
+        enabled: true, last_success_at: 1793210000,
+        last_verify_at: 1793210000, object: 'gilberto/staging/mock.glbk',
+      } })
+      return
+    }
+    if (path === '/api/admin/backups/run') {
+      await route.fulfill({ json: { status: 'uploaded', counts: {} } })
+      return
+    }
+    if (path === '/api/admin/backups/verify') {
+      await route.fulfill({ json: { status: 'restored_and_verified', counts: {} } })
       return
     }
     if (path === '/api/sessions') {
@@ -117,4 +133,28 @@ test('password change is sent only to same-origin identity endpoint', async ({ p
   await page.getByRole('button', { name: 'Sign out' }).click()
   await login(page, 'Upgraded-Strong-2026!')
   await expect(page.locator('#doc-upload')).toBeVisible()
+})
+
+
+test('administrator can upload encrypted backup and verify isolated restore', async ({ page }) => {
+  const { calls } = await mockIdentity(page, { admin: true })
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('button', { name: 'Account' }).click()
+  await page.getByRole('button', { name: 'Backup status' }).click()
+  await expect(page.getByText('Last restore test:', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Backup now' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Encrypted backup uploaded' }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Verify isolated restore' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Isolated backup restore verified' }).first()).toBeVisible()
+  expect(calls.filter(c => c.path === '/api/admin/backups/run').length).toBe(1)
+  expect(calls.filter(c => c.path === '/api/admin/backups/verify').length).toBe(1)
+})
+
+test('non-administrator cannot see privileged backup controls', async ({ page }) => {
+  await mockIdentity(page)
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('button', { name: 'Account' }).click()
+  await expect(page.getByRole('button', { name: 'Backup now' })).toHaveCount(0)
 })

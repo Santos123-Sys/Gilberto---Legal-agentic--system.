@@ -304,6 +304,12 @@ class LocalBootstrapAPITests(unittest.IsolatedAsyncioTestCase):
                          headers={"Origin": "https://staging.example.test"})
                     self.assertEqual(good.status_code, 200, good.text)
                     self.assertEqual(good.json()["user"]["role"], "admin")
+                    backup_status = await client.get("/api/admin/backups/status")
+                    self.assertEqual(backup_status.status_code, 200)
+                    with patch.dict(os.environ, {"BACKUP_ENABLED": "false"}):
+                        denied_backup = await client.post("/api/admin/backups/run",
+                            headers={"Origin": "https://staging.example.test"})
+                    self.assertEqual(denied_backup.status_code, 409)
                     listed = await client.get("/api/admin/users")
                     self.assertEqual(listed.status_code, 200)
                     self.assertEqual(len(listed.json()["users"]), 1)
