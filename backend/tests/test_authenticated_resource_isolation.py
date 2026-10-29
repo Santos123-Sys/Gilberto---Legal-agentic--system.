@@ -83,6 +83,7 @@ class AuthenticatedResourceIsolationTests(unittest.IsolatedAsyncioTestCase):
             (f"/api/sessions/{sid}/start", {"files": {"document": ("contract.txt", b"Test")}}),
             (f"/api/sessions/{sid}/feedback", {"json": {"feedback": "Please review clause"}}),
             (f"/api/sessions/{sid}/accept", {}),
+            (f"/api/sessions/{sid}/cancel", {}),
             (f"/api/sessions/{sid}/gate-decision", {"json": {
                 "session_id": sid, "gate_number": 1, "gate_id": "unknown",
                 "decision": "approve", "human_review_id": "lawyer-a",
@@ -149,3 +150,52 @@ class AuthenticatedResourceIsolationTests(unittest.IsolatedAsyncioTestCase):
         legacy = await self.client.get(f"/api/sessions/{self.sid}/results",
             headers=self.authorization(self.owner))
         self.assertEqual(legacy.status_code, 404)
+
+    async def test_owned_run_can_cancel_without_dispatching_more_actions(self):
+        waiting = asyncio.Event()
+
+        async def paused_debate(document):
+            yield {"type": "ROUND_START", "round": 1}
+            await waiting.wait()
+            yield {"type": "DEBATE_COMPLETE"}  # Must never be reached.
+
+        self.session["status"] = "running"
+        with patch.object(self.session["engine"], "run_debate", side_effect=paused_debate):
+            task = asyncio.create_task(main._run_analysis_bg(self.sid, "Synthetic contract"))
+            self.session["task"] = task
+            for _ in range(100):
+                if self.session["events"]:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertTrue(self.session["events"])
+            denied = await self.client.post(f"/api/sessions/{self.sid}/cancel",
+                                            headers=self.authorization(self.other))
+            self.assertEqual(denied.status_code, 404)
+            self.assertFalse(task.done())
+            accepted = await self.client.post(f"/api/sessions/{self.sid}/cancel",
+                                              headers=self.authorization(self.owner))
+            self.assertEqual(accepted.status_code, 200)
+            self.assertTrue(accepted.json()["provider_in_flight_possible"])
+            await asyncio.gather(task, return_exceptions=True)
+        self.assertEqual(self.session["status"], "cancelled")
+        self.assertFalse(any(event["type"] == "DEBATE_COMPLETE" for event in self.session["events"]))
+        self.assertEqual(sum(event["type"] == "CANCELLED" for event in self.session["events"]), 1)
+        again = await self.client.post(f"/api/sessions/{self.sid}/cancel",
+                                       headers=self.authorization(self.owner))
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.json()["status"], "cancelled")
+        final = await self.client.post(f"/api/sessions/{self.sid}/accept",
+                                       headers=self.authorization(self.owner))
+        self.assertEqual(final.status_code, 409)
+
+    async def test_owner_can_cancel_before_dispatch_and_state_survives_restart(self):
+        cancelled = await self.client.post(f"/api/sessions/{self.sid}/cancel",
+                                           headers=self.authorization(self.owner))
+        self.assertEqual(cancelled.status_code, 200)
+        self.assertEqual(cancelled.json()["status"], "cancelled")
+        self.assertEqual(self.session["events"][-1]["type"], "CANCELLED")
+        main.sessions.clear()
+        restored = await self.client.get(f"/api/sessions/{self.sid}/status",
+                                         headers=self.authorization(self.owner))
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.json()["status"], "cancelled")
