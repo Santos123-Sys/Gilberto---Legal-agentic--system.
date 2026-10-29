@@ -86,6 +86,10 @@ export function IntentPreview({ config, onConfirm, onEdit }) {
         </div>
       </div>
 
+      <div className="mt-5 p-4 rounded-lg border border-amber-500/30 text-sm text-slate-300">
+        <p className="font-medium text-amber-300">AI inference destination: {config.provider_mode === 'backup' ? 'Operator-approved backup' : 'Maritaca (primary)'}</p>
+        <p className="mt-1">This review uses one selected provider. On an outage or uncertain timeout, requests are not automatically repeated or switched. Partial work remains incomplete and requires a new, explicitly authorized review.</p>
+      </div>
       {/* Config summary */}
       <div className="mt-6 p-3 rounded-lg bg-slate-800/30 border border-slate-700/30">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
