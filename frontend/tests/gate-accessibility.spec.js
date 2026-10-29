@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './authenticated-fixture.js'
 
 test('gate choice exposes selected state to assistive technology and reflows on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

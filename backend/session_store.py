@@ -61,7 +61,7 @@ def load(session_id, engine_factory):
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise SessionCheckpointError("Stored checkpoint cannot be reconstructed") from exc
     session.update(engine=engine, task=None)
-    if session['status'] in ('running', 'awaiting_gate'):
+    if session['status'] in ('running', 'awaiting_gate', 'cancellation_requested'):
         session['status'] = 'error'
         session['error'] = 'Execution was interrupted by a server restart. Saved findings and review records are retained. Start a new analysis to continue safely.'
         session['events'].append({'type': 'ERROR', 'message': session['error'],

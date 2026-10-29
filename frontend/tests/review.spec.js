@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './authenticated-fixture.js'
 
 const config = { num_rounds: 1, num_agents: 4, workflow_type: 'contract_review', jurisdiction: 'BR',
   active_clusters: [{ id: 'foundation', name: 'Foundation', agents: 4 }], max_feedback_rounds: 2, model_call_budget: 250 }

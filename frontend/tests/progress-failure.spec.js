@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './authenticated-fixture.js'
 
 test('interrupted execution is described as stopped, never shown as agents still working', async ({ page }) => {
   await page.addInitScript(() => {
