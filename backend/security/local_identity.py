@@ -6,6 +6,7 @@ password hashes or bearer/session tokens in application logs or API responses.
 """
 import argparse
 from contextlib import closing
+from hmac import compare_digest
 import getpass
 import hashlib
 import os
@@ -102,6 +103,13 @@ def connect():
             failures INTEGER NOT NULL,
             first_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS identity_roles (
+            user_id TEXT PRIMARY KEY REFERENCES identity_users(id),
+            role TEXT NOT NULL CHECK(role IN ('admin','user'))
+        );
+        CREATE TABLE IF NOT EXISTS identity_settings (
+            name TEXT PRIMARY KEY, value TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS identity_audit (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT,
@@ -164,6 +172,69 @@ def _new_session(db, user_id, now):
     return token
 
 
+def has_bootstrapped():
+    with closing(connect()) as db:
+        row = db.execute("SELECT 1 FROM identity_users LIMIT 1").fetchone()
+        return bool(row)
+
+
+def bootstrap_first_admin(email, password, provided_secret, *, token_hash, expires_at):
+    """Atomic first account only. One-time, time-limited out-of-band bootstrap.
+
+    Token hash must be supplied from a trusted environment variable, never a
+    front-end build variable or a user-provided URL/token location.
+    """
+    email = normalize_email(email)
+    validate_new_password(password)
+    now = int(time.time())
+    if not isinstance(provided_secret, str) or not 32 <= len(provided_secret) <= 512:
+        raise LoginRejected()
+    if not isinstance(token_hash, str) or len(token_hash) != 64:
+        raise LoginRejected()
+    if not isinstance(expires_at, int) or expires_at <= now:
+        raise LoginRejected()
+    digest = _digest(provided_secret)
+    if not compare_digest(digest, token_hash.lower()):
+        raise LoginRejected()
+    pwd_hash = PASSWORD_HASHER.hash(password)
+    user_id = str(uuid.uuid4())
+    with closing(connect()) as db:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM identity_users LIMIT 1").fetchone():
+                raise LoginRejected()
+            if db.execute("SELECT value FROM identity_settings WHERE name='bootstrap_complete'").fetchone():
+                raise LoginRejected()
+            db.execute("INSERT INTO identity_users VALUES(?,?,?,?,?,?)",
+                       (user_id, email, pwd_hash, 1, now, now))
+            db.execute("INSERT INTO identity_roles VALUES(?, 'admin')", (user_id,))
+            db.execute("INSERT INTO identity_settings VALUES('bootstrap_complete','1')")
+            _audit(db, user_id, "FIRST_ADMIN_BOOTSTRAPPED", now)
+            token = _new_session(db, user_id, now)
+            db.commit()
+            return token, {"id": user_id, "email": email, "role": "admin"}
+        except BaseException:
+            db.rollback()
+            raise
+
+
+def user_role(user_id):
+    with closing(connect()) as db:
+        row = db.execute("SELECT role FROM identity_roles WHERE user_id=?", (user_id,)).fetchone()
+        return row["role"] if row else "user"
+
+
+def list_users_for_admin(user_id):
+    if user_role(user_id) != "admin":
+        raise PermissionError("Administrator access required")
+    with closing(connect()) as db:
+        return [dict(row) for row in db.execute(
+            """SELECT u.id,u.email,u.active,
+                      COALESCE(r.role,'user') AS role
+               FROM identity_users u LEFT JOIN identity_roles r ON r.user_id=u.id
+               ORDER BY u.created_at,u.id""")]
+
+
 def create_user(email, password):
     email = normalize_email(email)
     validate_new_password(password)
@@ -174,6 +245,7 @@ def create_user(email, password):
         with db:
             db.execute("INSERT INTO identity_users VALUES(?,?,?,?,?,?)",
                        (user_id, email, pwd_hash, 1, now, now))
+            db.execute("INSERT INTO identity_roles VALUES (?,?)", (user_id, "user"))
             _audit(db, user_id, "USER_CREATED", now)
     return user_id
 
@@ -207,7 +279,8 @@ def login(email, password, remote_address):
                        (email_key,))
             token = _new_session(db, user["id"], now)
             _audit(db, user["id"], "LOGIN", now)
-            return token, {"id": user["id"], "email": user["email"]}
+            return token, {"id": user["id"], "email": user["email"],
+                           "role": user_role(user["id"])}
 
 
 def resolve_session(token):
@@ -229,6 +302,7 @@ def resolve_session(token):
                            "WHERE token_hash=? AND revoked_at IS NULL",
                            (now, _digest(token)))
             return {"id": row["user_id"], "email": row["email"],
+                    "role": user_role(row["user_id"]),
                     "expires_at": row["expires_at"]}
 
 

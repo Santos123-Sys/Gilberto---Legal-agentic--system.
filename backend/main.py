@@ -113,6 +113,12 @@ class LocalLoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class LocalBootstrapRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=256)
+    bootstrap_token: str = Field(min_length=32, max_length=512)
+
+
 class LocalPasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=256)
     new_password: str = Field(min_length=12, max_length=256)
@@ -127,6 +133,43 @@ def _issue_cookie(response: Response, token: str):
     response.set_cookie(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE), token, max_age=local_identity.SESSION_TTL,
                         secure=settings.LOCAL_AUTH_COOKIE_SECURE, httponly=True,
                         samesite="strict", path="/")
+
+
+@app.get("/api/auth/bootstrap-status")
+async def local_bootstrap_status():
+    _local_only()
+    enabled = (not local_identity.has_bootstrapped() and
+               len(settings.LOCAL_BOOTSTRAP_TOKEN_SHA256) == 64 and
+               settings.LOCAL_BOOTSTRAP_EXPIRES_AT > int(time()))
+    return {"available": enabled}
+
+
+@app.post("/api/auth/bootstrap")
+async def local_bootstrap(body: LocalBootstrapRequest, response: Response):
+    _local_only()
+    if local_identity.has_bootstrapped():
+        raise HTTPException(status_code=409, detail="Initial setup is already complete")
+    try:
+        token, user = local_identity.bootstrap_first_admin(
+            body.email, body.password, body.bootstrap_token,
+            token_hash=settings.LOCAL_BOOTSTRAP_TOKEN_SHA256,
+            expires_at=settings.LOCAL_BOOTSTRAP_EXPIRES_AT)
+    except (local_identity.LoginRejected, ValueError):
+        raise HTTPException(status_code=403, detail="Initial setup is unavailable or invalid") from None
+    _issue_cookie(response, token)
+    return {"user": user, "status": "administrator_created"}
+
+
+@app.get("/api/admin/users")
+async def local_admin_users(principal: Principal = Depends(current_principal)):
+    _local_only()
+    if principal.issuer != local_identity.LOCAL_ISSUER:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    try:
+        users = local_identity.list_users_for_admin(principal.subject)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Administrator access required") from None
+    return {"users": users}
 
 
 @app.post("/api/auth/login")
@@ -150,7 +193,7 @@ async def local_me(request: Request):
     account = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
     if not account:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return {"user": {"id": account["id"], "email": account["email"]}}
+    return {"user": {"id": account["id"], "email": account["email"], "role": account["role"]}}
 
 
 @app.post("/api/auth/logout")

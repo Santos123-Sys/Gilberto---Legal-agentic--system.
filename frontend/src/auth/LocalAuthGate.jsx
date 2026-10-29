@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
-import { changeLocalPassword, getLocalUser, signInLocal, signOutLocal } from './localIdentity'
+import { bootstrapAdmin, bootstrapAvailable, changeLocalPassword, getLocalUser, signInLocal, signOutLocal } from './localIdentity'
 
 export function LocalAuthGate({ children }) {
   const [status, setStatus] = useState('checking')
+  const [bootstrapOpen, setBootstrapOpen] = useState(false)
+  const [bootstrapToken, setBootstrapToken] = useState('')
+  const [bootstrapConfirm, setBootstrapConfirm] = useState('')
   const [user, setUser] = useState(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -19,6 +22,10 @@ export function LocalAuthGate({ children }) {
       if (!active) return
       setUser(account)
       setStatus(account ? 'authenticated' : 'unauthenticated')
+      if (!account) {
+        bootstrapAvailable().then(enabled => { if (active) setBootstrapOpen(enabled) })
+          .catch(() => {})
+      }
     }).catch(error => {
       if (!active) return
       setMessage(error.message)
@@ -53,6 +60,27 @@ export function LocalAuthGate({ children }) {
     } finally {
       setBusy(false)
     }
+  }
+
+  const createFirstAdmin = async event => {
+    event.preventDefault()
+    if (password !== bootstrapConfirm) {
+      setMessage('Password confirmation does not match.')
+      return
+    }
+    setBusy(true)
+    setMessage('')
+    try {
+      const account = await bootstrapAdmin(email, password, bootstrapToken)
+      setUser(account)
+      setBootstrapOpen(false)
+      setBootstrapToken('')
+      setBootstrapConfirm('')
+      setPassword('')
+      setStatus('authenticated')
+    } catch (error) {
+      setMessage(error.message)
+    } finally { setBusy(false) }
   }
 
   const signOut = async () => {
@@ -102,7 +130,10 @@ export function LocalAuthGate({ children }) {
         Administrator-issued accounts only. Sign in before accessing legal documents.
       </p>
       {message && <p role="alert" className="text-red-400">{message}</p>}
-      <form onSubmit={signIn} className="space-y-4">
+      <form onSubmit={bootstrapOpen ? createFirstAdmin : signIn} className="space-y-4">
+        {bootstrapOpen && <p role="status" className="text-yellow-300 text-sm">
+          First administrator setup — enter your one-time staging setup token.
+        </p>}
         <label htmlFor="identity-email" className="block text-sm">Email</label>
         <input id="identity-email" type="email" autoComplete="username" required maxLength={254}
           value={email} onChange={e => setEmail(e.target.value)}
@@ -111,8 +142,18 @@ export function LocalAuthGate({ children }) {
         <input id="identity-password" type="password" autoComplete="current-password"
           required value={password} onChange={e => setPassword(e.target.value)}
           className="w-full rounded-md border border-slate-600 bg-slate-900 p-3" />
+        {bootstrapOpen && <>
+          <label htmlFor="bootstrap-confirm" className="block text-sm">Confirm administrator password</label>
+          <input id="bootstrap-confirm" type="password" autoComplete="new-password"
+            value={bootstrapConfirm} onChange={e => setBootstrapConfirm(e.target.value)}
+            required minLength={12} className="w-full rounded-md border border-slate-600 bg-slate-900 p-3" />
+          <label htmlFor="bootstrap-token" className="block text-sm">One-time setup token</label>
+          <input id="bootstrap-token" type="password" autoComplete="off" required
+            value={bootstrapToken} onChange={e => setBootstrapToken(e.target.value)}
+            className="w-full rounded-md border border-slate-600 bg-slate-900 p-3" />
+        </>}
         <button type="submit" disabled={busy} className="rounded-lg bg-gold-500 px-5 py-3 text-slate-950 disabled:opacity-50">
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy ? 'Processing…' : bootstrapOpen ? 'Create first administrator' : 'Sign in'}
         </button>
       </form>
       {status === 'unavailable' && <p className="text-sm text-yellow-300">

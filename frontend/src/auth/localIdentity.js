@@ -42,3 +42,22 @@ export async function changeLocalPassword(currentPassword, newPassword) {
   if (!res.ok) throw new Error(data.detail || 'Password change failed.')
   return data
 }
+
+
+export async function bootstrapAvailable() {
+  const { res, data } = await authRequest('bootstrap-status')
+  if (!res.ok) return false
+  return data.available === true
+}
+
+export async function bootstrapAdmin(email, password, bootstrapToken) {
+  const { res, data } = await authRequest('bootstrap', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, bootstrap_token: bootstrapToken }),
+  })
+  if (!res.ok || data.status !== 'administrator_created') {
+    throw new Error(res.status === 409 ? 'Initial setup has already been completed.' :
+      'Initial setup was rejected. Check the one-time token and expiry.')
+  }
+  return data.user
+}

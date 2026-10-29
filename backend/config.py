@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     LOCAL_AUTH_APP_ORIGIN: str = ""
     LOCAL_AUTH_PROXY_SECRET: str = ""
     LOCAL_AUTH_COOKIE_SECURE: bool = True
+    LOCAL_BOOTSTRAP_TOKEN_SHA256: str = ""
+    LOCAL_BOOTSTRAP_EXPIRES_AT: int = 0
 
     # OIDC API verifier (never allow anonymous fallback).
     OIDC_ISSUER: str = ""

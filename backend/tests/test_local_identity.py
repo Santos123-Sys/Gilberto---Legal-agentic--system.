@@ -229,3 +229,87 @@ class LocalIdentityAPITests(unittest.IsolatedAsyncioTestCase):
         with patch.object(settings, "LOCAL_AUTH_COOKIE_SECURE", False):
             response = await self.client.get("/api/auth/me")
         self.assertEqual(response.status_code, 503)
+
+
+class LocalBootstrapTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        p = patch.dict(os.environ, {"IDENTITY_DB_PATH": self.folder.name + "/identity.db"})
+        p.start()
+        self.addCleanup(p.stop)
+        self.secret = "A" * 40
+        self.digest = local_identity._digest(self.secret)
+
+    def test_first_administrator_created_once_and_admin_permissions_enforced(self):
+        token, user = local_identity.bootstrap_first_admin(
+            "owner@example.test", "Strong-Initial-Passphrase!2026", self.secret,
+            token_hash=self.digest, expires_at=int(time.time()) + 900)
+        self.assertEqual(user["role"], "admin")
+        self.assertEqual(local_identity.resolve_session(token)["role"], "admin")
+        self.assertEqual(local_identity.list_users_for_admin(user["id"])[0]["email"], "owner@example.test")
+        with self.assertRaises(local_identity.LoginRejected):
+            local_identity.bootstrap_first_admin("other@example.test",
+                "Strong-Initial-Passphrase!2026", self.secret,
+                token_hash=self.digest, expires_at=int(time.time())+900)
+        staff = local_identity.create_user("staff@example.test", "Strong-Staff-Password!2026")
+        with self.assertRaises(PermissionError):
+            local_identity.list_users_for_admin(staff)
+
+    def test_wrong_expired_or_missing_secret_prevents_admin_creation(self):
+        for token, expires in [("wrong" * 10, int(time.time()) + 900),
+                               (self.secret, int(time.time()) - 1)]:
+            with self.assertRaises(local_identity.LoginRejected):
+                local_identity.bootstrap_first_admin("owner@example.test",
+                    "Strong-Initial-Passphrase!2026", token,
+                    token_hash=self.digest, expires_at=expires)
+        self.assertFalse(local_identity.has_bootstrapped())
+
+
+class LocalBootstrapAPITests(unittest.IsolatedAsyncioTestCase):
+    async def test_bootstrap_one_time_and_csrf(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as folder:
+            values = [
+                patch.dict(os.environ, {
+                    "IDENTITY_DB_PATH": folder + "/identity.sqlite3",
+                    "SESSION_DB_PATH": folder + "/sessions.sqlite3"}),
+                patch.object(settings, "AUTH_MODE", "local"),
+                patch.object(settings, "LOCAL_AUTH_APP_ORIGIN", "https://staging.example.test"),
+                patch.object(settings, "LOCAL_AUTH_PROXY_SECRET", "x" * 48),
+                patch.object(settings, "LOCAL_AUTH_COOKIE_SECURE", True),
+                patch.object(settings, "LOCAL_BOOTSTRAP_TOKEN_SHA256",
+                             hashlib.sha256(("U" * 50).encode()).hexdigest()),
+                patch.object(settings, "LOCAL_BOOTSTRAP_EXPIRES_AT", int(time.time())+900),
+            ]
+            for p in values: p.start()
+            try:
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=main.app),
+                    base_url="https://staging.example.test",
+                    headers={"X-Gilberto-Proxy-Auth": "x" * 48}) as client:
+                    status = await client.get("/api/auth/bootstrap-status")
+                    self.assertEqual(status.json()["available"], True)
+                    body = {"email": "admin@example.test",
+                            "password": "Secure-Admin-Passphrase2026!",
+                            "bootstrap_token": "U" * 50}
+                    wrong_origin = await client.post("/api/auth/bootstrap", json=body,
+                         headers={"Origin": "https://malicious.example"})
+                    self.assertEqual(wrong_origin.status_code, 403)
+                    wrong = await client.post("/api/auth/bootstrap", json={**body,
+                         "bootstrap_token": "different"+("U"*45)},
+                         headers={"Origin": "https://staging.example.test"})
+                    self.assertEqual(wrong.status_code, 403)
+                    good = await client.post("/api/auth/bootstrap", json=body,
+                         headers={"Origin": "https://staging.example.test"})
+                    self.assertEqual(good.status_code, 200, good.text)
+                    self.assertEqual(good.json()["user"]["role"], "admin")
+                    listed = await client.get("/api/admin/users")
+                    self.assertEqual(listed.status_code, 200)
+                    self.assertEqual(len(listed.json()["users"]), 1)
+                    self.assertFalse((await client.get("/api/auth/bootstrap-status")).json()["available"])
+                    repeated = await client.post("/api/auth/bootstrap", json=body,
+                         headers={"Origin": "https://staging.example.test"})
+                    self.assertEqual(repeated.status_code, 409)
+            finally:
+                for p in reversed(values): p.stop()
