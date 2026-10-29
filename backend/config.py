@@ -61,6 +61,7 @@ class Settings(BaseSettings):
         os.getenv("LLM_INPUT_TOKENS_PER_MINUTE", "10000")
     )
 
+    MAX_CONCURRENT_ANALYSES: int = Field(default=2, ge=1, le=20)
     MAX_MODEL_CALLS: int = Field(default=250, ge=1, le=1000)
     MAX_FEEDBACK_ROUNDS: int = Field(default=2, ge=0, le=5)
     LLM_REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0, le=600)
