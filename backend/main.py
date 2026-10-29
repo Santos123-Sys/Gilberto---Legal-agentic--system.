@@ -181,6 +181,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
     except asyncio.CancelledError:
         session["status"] = "cancelled"
         session["error"] = None
+        session.get("cancellation", {}).update(state="confirmed")
         _append_event(session, {"type": "CANCELLED",
                                 "message": "Orchestration stopped. An in-flight provider call may still finish.",
                                 "timestamp": datetime.now().isoformat()})
@@ -537,6 +538,7 @@ def _finish_cancel(session):
         return
     session["status"] = "cancelled"
     session["error"] = None
+    session.get("cancellation", {}).update(state="confirmed")
     _append_event(session, {"type": "CANCELLED",
                             "message": "Orchestration stopped. An in-flight provider call may still finish.",
                             "timestamp": datetime.now().isoformat()})
@@ -553,6 +555,12 @@ async def cancel_session(session_id: str, principal: Principal = Depends(current
         raise HTTPException(status_code=409, detail="This review cannot be cancelled in its current state")
     session["engine"]._provider_aborted = True
     session["status"] = "cancellation_requested"
+    session["cancellation"] = {
+        "requested_by_issuer": principal.issuer,
+        "requested_by_subject": principal.subject,
+        "requested_at": datetime.now().isoformat(),
+        "state": "requested",
+    }
     _append_event(session, {"type": "CANCEL_REQUESTED",
                             "message": "Stopping new model and tool dispatch",
                             "timestamp": datetime.now().isoformat()})

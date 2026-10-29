@@ -178,6 +178,7 @@ class AuthenticatedResourceIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(accepted.json()["provider_in_flight_possible"])
             await asyncio.gather(task, return_exceptions=True)
         self.assertEqual(self.session["status"], "cancelled")
+        self.assertEqual(self.session["cancellation"]["requested_by_subject"], "lawyer-a")
         self.assertFalse(any(event["type"] == "DEBATE_COMPLETE" for event in self.session["events"]))
         self.assertEqual(sum(event["type"] == "CANCELLED" for event in self.session["events"]), 1)
         again = await self.client.post(f"/api/sessions/{self.sid}/cancel",
