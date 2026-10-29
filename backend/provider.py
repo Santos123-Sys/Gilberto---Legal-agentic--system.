@@ -102,3 +102,93 @@ class MaritacaClient:
             raise ProviderError('invalid_response', 'Maritaca returned an unreadable response; no completed review was certified.') from None
         self._record_usage(body)
         return content
+
+# A second vendor may receive confidential legal documents only when BOTH the
+# operator allowlists its HTTPS host and the session owner explicitly consents.
+# Never retry an uncertain completion on another provider.
+from ipaddress import ip_address
+from urllib.parse import urlparse
+
+
+def approved_backup_url():
+    raw = settings.FALLBACK_LLM_BASE_URL.strip()
+    allowed = {host.strip().lower() for host in settings.FALLBACK_LLM_ALLOWED_HOSTS.split(",") if host.strip()}
+    if not raw or not allowed or not settings.FALLBACK_LLM_MODEL.strip() or not settings.FALLBACK_LLM_API_KEY.strip():
+        return None
+    try:
+        parsed = urlparse(raw)
+        host = parsed.hostname
+        port = parsed.port
+        if host is not None:
+            ip_address(host)  # IP endpoints are prohibited, including RFC1918 and loopback.
+            return None
+    except ValueError:
+        # Non-IP hostname is allowed; invalid port is still rejected below.
+        try:
+            parsed = urlparse(raw)
+            host = parsed.hostname
+            port = parsed.port
+        except ValueError:
+            return None
+    if (parsed.scheme != "https" or not host or host.lower() not in allowed or
+            port not in (None, 443) or parsed.username or parsed.password or
+            parsed.query or parsed.fragment or parsed.params or
+            parsed.path.rstrip("/") not in ("", "/v1", "/api") or
+            raw != raw.strip() or raw.endswith("//")):
+        return None
+    # Explicit hostname validation also forbids host aliases and local domains.
+    if host.lower() in ("localhost",) or host.lower().endswith((".localhost", ".local", ".internal")):
+        return None
+    return raw.rstrip("/") + "/chat/completions"
+
+
+def backup_configured():
+    return approved_backup_url() is not None
+
+
+class BackupClient(MaritacaClient):
+    """Operator-authorized OpenAI-compatible endpoint; one request, never replayed."""
+    def call(self, messages):
+        url = approved_backup_url()
+        if not url:
+            raise ProviderError("backup_not_configured",
+                                "No approved backup model is configured for this workspace.")
+        try:
+            with httpx.Client(timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS, follow_redirects=False) as client:
+                response = client.post(url, headers={
+                    "Authorization": "Bearer " + settings.FALLBACK_LLM_API_KEY.strip(),
+                    "Content-Type": "application/json",
+                }, json={"model": settings.FALLBACK_LLM_MODEL, "messages": messages,
+                         "temperature": settings.TEMPERATURE, "max_tokens": settings.MAX_TOKENS})
+        except httpx.TimeoutException:
+            raise ProviderError("timeout",
+                                "Backup inference timed out. Completion and billing are uncertain; no retry was sent.") from None
+        except httpx.RequestError:
+            raise ProviderError("connection",
+                                "Backup inference could not be reached; no retry was sent.") from None
+        if not response.is_success:
+            status = response.status_code
+            if status == 429:
+                code, detail = "rate_limit", "The approved backup provider rate-limited the request."
+            elif status in (401, 403):
+                code, detail = "authentication", "The approved backup provider rejected access."
+            elif status == 402:
+                code, detail = "billing", "The approved backup provider account has insufficient credit."
+            elif 500 <= status < 600:
+                code, detail = "provider_unavailable", "The approved backup provider is unavailable."
+            else:
+                code, detail = "provider_rejected_request", "The approved backup provider rejected the request."
+            logger.warning("Backup inference failed: code=%s http_status=%d", code, status)
+            raise ProviderError(code, detail + " No automatic retry was sent.", http_status=status)
+        try:
+            body = response.json()
+            choice = body["choices"][0]
+            if choice.get("finish_reason") == "length":
+                raise ProviderError("truncated", "Backup output was truncated; this review is incomplete.")
+            content = choice["message"]["content"]
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError()
+        except (ValueError, TypeError, IndexError, KeyError):
+            raise ProviderError("invalid_response", "Backup inference returned an invalid response.") from None
+        self._record_usage(body)
+        return content

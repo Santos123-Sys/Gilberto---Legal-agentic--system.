@@ -95,6 +95,8 @@ export function useAgenticSession() {
       num_rounds: Number(sessionConfig.numRounds ?? sessionConfig.num_rounds ?? 2),
       workflow_type: workflowTypes[workflowType] || workflowType || 'contract_review',
       jurisdiction: sessionConfig.jurisdiction || 'BR',
+      provider_mode: sessionConfig.providerMode || 'primary',
+      backup_consent: sessionConfig.backupConsent === true,
       urgency: sessionConfig.urgency || 'normal',
     }
 

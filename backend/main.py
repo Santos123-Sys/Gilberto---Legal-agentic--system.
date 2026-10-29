@@ -38,7 +38,7 @@ from config import settings
 from financial.planning import estimate_plan
 from operational.metrics import summarize_sessions
 import session_store
-from provider import ProviderError
+from provider import ProviderError, backup_configured
 from document_extractor import DocumentExtractionError, extract_document_text
 from engines.debate_engine_v3 import DebateEngineV3, ReanalysisRequested, WorkflowError
 from scoring import classification_for
@@ -446,6 +446,8 @@ async def health():
         "session_storage": "sqlite_checkpoint",
         "provider": {"name": "Maritaca", "model": settings.MARITACA_MODEL,
                      "configured": bool(settings.MARITACA_API_KEY.strip()), "transport": "direct_chat_completion"},
+        "backup_provider": {"configured": backup_configured(), "requires_explicit_consent": True,
+                            "automatic_failover": False},
         "version": "3.0.0",
         "architecture": "parallel_clusters_with_devils_advocate",
         "active_clusters": settings.active_clusters_list,
@@ -490,12 +492,22 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
         raise HTTPException(status_code=422, detail="Requested rounds exceed the configured limit")
     if request.jurisdiction != "BR":
         raise HTTPException(status_code=422, detail="Only Brazilian jurisdiction is supported")
+    if request.provider_mode == "backup":
+        if not request.backup_consent:
+            raise HTTPException(status_code=422, detail="Approve transfer to the configured backup provider before starting a new legal review")
+        if not backup_configured():
+            raise HTTPException(status_code=503, detail="Approved backup provider is not configured")
+        if (settings.MAX_REVIEW_ESTIMATED_USD > 0 and
+                (settings.FALLBACK_LLM_INPUT_PRICE_USD_PER_1M <= 0 or
+                 settings.FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M <= 0)):
+            raise HTTPException(status_code=503, detail="Backup provider price rates are required by the configured cost ceiling")
     session_id = str(uuid.uuid4())
     engine = DebateEngineV3(
         session_id=session_id,
         num_agents=request.num_agents,
         num_rounds=request.num_rounds,
         workflow_type=request.workflow_type.value if hasattr(request.workflow_type, 'value') else str(request.workflow_type),
+        provider_mode=request.provider_mode,
     )
 
     engine.review_depth = request.review_depth
@@ -509,8 +521,10 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
     config["model_call_budget"] = settings.MAX_MODEL_CALLS
     config["cost_preflight"] = estimate_plan(
         config["initial_model_calls"], settings.MAX_TOKENS,
-        input_usd_per_million=settings.LLM_INPUT_PRICE_USD_PER_1M,
-        output_usd_per_million=settings.LLM_OUTPUT_PRICE_USD_PER_1M,
+        input_usd_per_million=(settings.FALLBACK_LLM_INPUT_PRICE_USD_PER_1M if request.provider_mode == "backup"
+                               else settings.LLM_INPUT_PRICE_USD_PER_1M),
+        output_usd_per_million=(settings.FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M if request.provider_mode == "backup"
+                                else settings.LLM_OUTPUT_PRICE_USD_PER_1M),
         hard_cap_usd=settings.MAX_REVIEW_ESTIMATED_USD,
     )
     if not active:
