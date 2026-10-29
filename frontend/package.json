@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --port 3000",
     "test": "playwright test",
+    "test:br-legal-notice": "node --test tests-unit/*.test.mjs",
     "test:local": "playwright test --config=playwright.local.config.js"
   },
   "dependencies": {
