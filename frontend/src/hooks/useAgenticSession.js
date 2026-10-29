@@ -1,4 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { authorizedFetch } from '../auth/oidc'
+import { AuthenticatedEventStream } from '../auth/stream'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const ACTIVE_SESSION_KEY = 'gilberto.activeSession.v1'
@@ -102,7 +104,7 @@ export function useAgenticSession() {
     setError(null)
 
     try {
-      const res = await fetch(`${API_BASE}/api/sessions`, {
+      const res = await authorizedFetch(`${API_BASE}/api/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(apiConfig),
@@ -146,7 +148,7 @@ export function useAgenticSession() {
       const formData = new FormData()
       formData.append('document', selectedFile)
 
-      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/start`, {
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/start`, {
         method: 'POST',
         body: formData,
       })
@@ -177,7 +179,7 @@ export function useAgenticSession() {
 
     setConnectionState('connecting')
     const url = `${API_BASE}/api/sessions/${sid}/stream?cursor=${cursor}`
-    const es = new EventSource(url)
+    const es = new AuthenticatedEventStream(url)
     eventSourceRef.current = es
 
     es.onopen = () => {
@@ -292,7 +294,7 @@ export function useAgenticSession() {
             if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
             setConnectionState('closed')
             // History describes prior stages; the server owns the current terminal state.
-            fetch(`${API_BASE}/api/sessions/${sid}/status`).then(res => res.ok ? res.json() : null)
+            authorizedFetch(`${API_BASE}/api/sessions/${sid}/status`).then(res => res.ok ? res.json() : null)
               .then(remote => { if (remote && eventSourceRef.current === es) setStatus(statusFromServer(remote.status)) })
               .catch(() => {})
             break
@@ -327,7 +329,7 @@ export function useAgenticSession() {
     if (!sessionId) {
       return
     }
-    saveSession({ sessionId, config, documentName })
+    saveSession({ sessionId, config })
   }, [sessionId, config, documentName])
 
   // Restore an in-flight server session after refresh, then replay its event history.
@@ -338,7 +340,7 @@ export function useAgenticSession() {
       if (!saved?.sessionId) return
 
       try {
-        const response = await fetch(`${API_BASE}/api/sessions/${saved.sessionId}/status`)
+        const response = await authorizedFetch(`${API_BASE}/api/sessions/${saved.sessionId}/status`)
         if (!response.ok) throw new Error(`Sessão não disponível (HTTP ${response.status})`)
         const remote = await response.json()
         if (cancelled) return
@@ -350,7 +352,7 @@ export function useAgenticSession() {
         }
         setSessionId(saved.sessionId)
         setConfig(saved.config || null)
-        setDocumentName(remote.document_name || saved.documentName || null)
+        setDocumentName(remote.document_name || null)
         setStatus(restoredStatus)
         setShowIntentPreview(false)
         if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(remote.status)) {
@@ -371,14 +373,14 @@ export function useAgenticSession() {
     if (!sessionId) return false
 
     try {
-      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/gate-decision`, {
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/gate-decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
           gate_number: gateNumber,
           gate_id: gateId,
-          human_review_id: 'web_user',
+          human_review_id: 'authenticated_principal', // backend derives audit actor from signed token.
           decision,
           reasoning,
           override_score: overrideScore,
@@ -410,7 +412,7 @@ export function useAgenticSession() {
     if (!sessionId) return
 
     try {
-      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/feedback`, {
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feedback }),
@@ -437,7 +439,7 @@ export function useAgenticSession() {
     if (!sessionId) return
 
     try {
-      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/accept`, { method: 'POST' })
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/accept`, { method: 'POST' })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(apiErrorMessage(body.detail, `HTTP ${res.status}`))
