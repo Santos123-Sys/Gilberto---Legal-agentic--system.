@@ -175,6 +175,70 @@ class LocalIdentityAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.post("/api/admin/backups/verify",
                                                 headers=self.origin)).status_code, 403)
 
+    async def test_owner_pause_resume_and_cancel_from_paused_queue(self):
+        await self.login()
+        created = await self.client.post("/api/sessions", json={"num_rounds": 1},
+                                         headers=self.origin)
+        sid = created.json()["session_id"]
+        current = main.sessions[sid]
+        current["status"] = "running"
+        paused = await self.client.post(f"/api/sessions/{sid}/pause", headers=self.origin)
+        self.assertEqual(paused.status_code, 200, paused.text)
+        self.assertEqual(paused.json()["run_control"], "pause_requested")
+        self.assertFalse(current["engine"]._dispatch_allowed.is_set())
+        self.assertEqual((await self.client.get(f"/api/sessions/{sid}/status")).json()["run_control"], "pause_requested")
+        self.assertEqual((await self.client.post(f"/api/sessions/{sid}/pause",
+                                                headers=self.origin)).status_code, 200)
+        await self.login(self.other, "b@example.com", "Strong!Password-2026B")
+        self.assertEqual((await self.other.post(f"/api/sessions/{sid}/resume",
+                                                headers=self.origin)).status_code, 404)
+        resumed = await self.client.post(f"/api/sessions/{sid}/resume", headers=self.origin)
+        self.assertEqual(resumed.status_code, 200)
+        self.assertTrue(current["engine"]._dispatch_allowed.is_set())
+        self.assertEqual((await self.client.post(f"/api/sessions/{sid}/resume",
+                                                headers=self.origin)).status_code, 409)
+        await self.client.post(f"/api/sessions/{sid}/pause", headers=self.origin)
+        cancelled = await self.client.post(f"/api/sessions/{sid}/cancel", headers=self.origin)
+        self.assertEqual(cancelled.status_code, 200)
+        self.assertTrue(current["engine"]._dispatch_allowed.is_set())
+        self.assertEqual(current["status"], "cancelled")
+        self.assertEqual((await self.client.post(f"/api/sessions/{sid}/resume",
+                                                headers=self.origin)).status_code, 409)
+
+    async def test_human_vote_is_owner_scoped_immutable_and_non_binding(self):
+        await self.login()
+        created = await self.client.post("/api/sessions", json={"num_rounds": 1},
+                                         headers=self.origin)
+        sid = created.json()["session_id"]
+        current = main.sessions[sid]
+        current["status"] = "running"
+        main._append_event(current, {"type": "AGENT_ANALYSIS_COMPLETE",
+                                      "agent": "Brazilian legal specialist", "cluster": "foundation",
+                                      "round": 1, "parsed": {"score": 7},
+                                      "timestamp": "2026-10-29T12:00:00"})
+        event_id = current["events"][-1]["event_id"]
+        body = {"event_id": event_id, "decision": "needs_evidence", "reasoning": "Check official STF citation"}
+        self.assertEqual((await self.client.post(f"/api/sessions/{sid}/human-votes",
+                  json={**body, "reasoning": ""}, headers=self.origin)).status_code, 422)
+        await self.login(self.other, "b@example.com", "Strong!Password-2026B")
+        self.assertEqual((await self.other.post(f"/api/sessions/{sid}/human-votes",
+                  json=body, headers=self.origin)).status_code, 404)
+        voted = await self.client.post(f"/api/sessions/{sid}/human-votes",
+                                       json=body, headers=self.origin)
+        self.assertEqual(voted.status_code, 200, voted.text)
+        self.assertEqual(voted.json()["vote"]["effect"], "advisory_only_not_an_agent_vote")
+        self.assertEqual((await self.client.get(f"/api/sessions/{sid}/results")).json()["human_votes"][0]["decision"],
+                         "needs_evidence")
+        self.assertEqual(current["events"][0]["parsed"]["score"], 7)
+        self.assertEqual((await self.client.post(f"/api/sessions/{sid}/human-votes",
+                  json=body, headers=self.origin)).status_code, 409)
+        self.assertEqual((await self.client.post(f"/api/sessions/{sid}/human-votes",
+                  json={"event_id": event_id+1, "decision": "agree"}, headers=self.origin)).status_code, 422)
+        self.assertEqual((await self.client.get(f"/api/sessions/{sid}/status")).json()["human_vote_count"], 1)
+        # Existing saved checkpoint contains the explicit vote without changing model scores.
+        restored = main.session_store.load(sid, main.DebateEngineV3)
+        self.assertEqual(restored["human_votes"][0]["event_id"], event_id)
+
     async def test_proxy_secret_and_csrf_origin_are_required(self):
         denied = await self.client.post("/api/auth/login",
             json={"email": "a@example.com", "password": "Strong!Password-2026A"},

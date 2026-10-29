@@ -8,6 +8,7 @@ import { GateReviewPanel } from './components/GateReviewPanel'
 import { SynthesisDashboard } from './components/SynthesisDashboard'
 import { AuditTrail } from './components/AuditTrail'
 import { AgenticProgress } from './components/AgenticProgress'
+import { AgentReviewConsole } from './components/AgentReviewConsole'
 import { useAgenticSession } from './hooks/useAgenticSession'
 
 // ─────────────────────────────────────────────
@@ -96,6 +97,13 @@ export default function App() {
             />
           </div>
 
+          {session.status === 'running' && (
+            <button type="button" onClick={() => session.setDispatchPaused(session.runControl !== 'pause_requested')}
+              className="rounded-lg border border-blue-500/60 px-3 py-2 text-sm text-blue-300"
+              aria-label={session.runControl === 'pause_requested' ? 'Resume agent dispatch' : 'Pause agent dispatch'}>
+              {session.runControl === 'pause_requested' ? 'Resume dispatch' : 'Pause new requests'}
+            </button>
+          )}
           {['running', 'awaiting_gate'].includes(session.status) && (
             <button type="button" onClick={session.cancelAnalysis}
               className="rounded-lg border border-yellow-500/60 px-3 py-2 text-sm text-yellow-300">
@@ -126,6 +134,27 @@ export default function App() {
               <p className="text-sm text-slate-300 mt-1" role="alert">{session.error}</p>
             </div>
           </div>
+        )}
+
+        {isError && session.config?.provider_mode !== 'backup' && (
+          <section className="card border border-amber-500/30 p-4 mb-6 space-y-2" aria-label="Maritaca continuity options">
+            <h2 className="text-base text-amber-300 font-medium">Provider failure recovery</h2>
+            <p className="text-sm text-slate-300">A request might have completed or incurred charges even if its response was lost. Gilberto will not silently retry or transfer legal material to another AI vendor.</p>
+            <p className="text-sm text-slate-300">To use an operator-approved backup model, select New Analysis, choose the backup inference destination, consent to the additional document transfer and upload the source again. Partial findings remain incomplete and must be reviewed.</p>
+            <button type="button" className="btn-secondary text-sm" onClick={() => {
+              const audit = { session_id: session.sessionId, completeness: 'incomplete_unverified',
+                events_visible_in_this_browser: session.events, model_tasks: session.executionMetrics,
+                human_votes: session.humanVotes, saved_at: new Date().toISOString() }
+              const blob = new Blob([JSON.stringify(audit, null, 2)], { type: 'application/json' })
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement('a')
+              link.href = url
+              link.download = `gilberto-incomplete-${session.sessionId || 'session'}.json`
+              link.click()
+              URL.revokeObjectURL(url)
+            }}>Export incomplete session audit before restarting</button>
+            <p className="text-xs text-slate-400">This file may contain confidential document excerpts. Store it securely; missing stream events cannot be reconstructed from this browser export.</p>
+          </section>
         )}
 
         {isError && Object.keys(session.clusterResults).length > 0 && (
@@ -206,6 +235,19 @@ export default function App() {
               onReconnect={session.reconnect}
               status={session.status}
             />
+          </div>
+        )}
+
+        {session.status === 'running' && session.runControl === 'pause_requested' && (
+          <section role="status" className="mb-6 rounded-lg border border-blue-500/50 bg-blue-500/5 p-4 text-sm text-slate-200">
+            New AI dispatch is paused. Any request already sent to the model may finish or incur charges. Resume dispatch to continue, or cancel to stop orchestration.
+          </section>
+        )}
+
+        {['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error', 'cancelled'].includes(session.status) && (
+          <div className="my-6">
+            <AgentReviewConsole events={session.events} humanVotes={session.humanVotes}
+              status={session.status} onVote={session.castHumanVote} />
           </div>
         )}
 

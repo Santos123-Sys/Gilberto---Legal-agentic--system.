@@ -220,6 +220,13 @@ class SessionResponse(BaseModel):
     config: Dict[str, Any]
 
 
+class HumanVoteRequest(BaseModel):
+    """Non-binding expert feedback on one immutable agent-analysis event."""
+    event_id: int = Field(ge=1)
+    decision: Literal["agree", "disagree", "needs_evidence"]
+    reasoning: str = Field(default="", max_length=2000)
+
+
 class FeedbackRequest(BaseModel):
     feedback: str = Field(min_length=10, max_length=10000, description="User feedback text")
     target_cluster: Optional[str] = None

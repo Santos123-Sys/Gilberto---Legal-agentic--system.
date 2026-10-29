@@ -322,6 +322,10 @@ class DebateEngineV3:
         self._llm_input_reservations = deque()
         self._provider_aborted = False
         self._provider_failure = None
+        # Pause is a dispatch barrier, not a cancellation of an already billed request.
+        self._dispatch_allowed = asyncio.Event()
+        self._dispatch_allowed.set()
+
 
     # ── Event helpers ────────────────────────
 
@@ -339,6 +343,7 @@ class DebateEngineV3:
         """Run one agent through a bounded, paced provider-call queue."""
         queued_at = time.monotonic()
         async with self._llm_call_semaphore:
+            await self._dispatch_allowed.wait()
             if self._provider_failure:
                 raise self._provider_failure
             if self._provider_aborted:
@@ -380,6 +385,7 @@ class DebateEngineV3:
                                                reason="provider_pacing", agent=agent_cfg.get("role")))
                     await asyncio.sleep(wait_seconds)
 
+                await self._dispatch_allowed.wait()
                 if self._provider_failure:
                     raise self._provider_failure
                 if self._provider_aborted:

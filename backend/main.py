@@ -51,6 +51,7 @@ import backup_operations
 from models.schemas import (
     FeedbackRequest,
     GateDecisionRequest,
+    HumanVoteRequest,
     SessionCreateRequest,
     SessionResponse,
 )
@@ -548,6 +549,8 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
         "error": None,
         "task": None,
         "feedback_rounds": 0,
+        "run_control": "running",
+        "human_votes": [],
     }
 
     # Persist the new session even when created outside the HTTP middleware.
@@ -668,6 +671,8 @@ async def get_status(session_id: str, principal: Principal = Depends(current_pri
         "pending_gates": session["pending_gates"],
         "gate_records_count": len(session["engine"].get_all_gate_records()),
         "feedback_rounds": session["feedback_rounds"],
+        "run_control": session.get("run_control", "running"),
+        "human_vote_count": len(session.get("human_votes", [])),
         "error": session["error"],
     }
 
@@ -691,6 +696,7 @@ async def get_results(session_id: str, principal: Principal = Depends(current_pr
         "devil_advocate": engine.devil_advocate_output.get("parsed", {}) if engine.devil_advocate_output else None,
         "final_synthesis": engine.master_summaries[-1].get("parsed", {}) if engine.master_summaries else None,
         "gate_records": engine.get_all_gate_records(),
+        "human_votes": session.get("human_votes", []),
         "execution_metrics": engine.get_metrics(),
         "partial": session["status"] == "error",
     }
@@ -811,6 +817,73 @@ def _finish_cancel(session):
     session_store.save(session)
 
 
+@app.post("/api/sessions/{session_id}/pause")
+async def pause_dispatch(session_id: str, principal: Principal = Depends(current_principal)):
+    """Stop NEW AI dispatch at the next async boundary, preserving in-flight calls."""
+    session = _get_session(session_id, principal)
+    if session["status"] != "running":
+        raise HTTPException(status_code=409, detail="Only an actively running review can pause dispatch")
+    if session.get("run_control") == "pause_requested":
+        return {"run_control": "pause_requested", "provider_in_flight_possible": True}
+    session["run_control"] = "pause_requested"
+    session["engine"]._dispatch_allowed.clear()
+    _append_event(session, {"type": "RUN_PAUSE_REQUESTED", "timestamp": datetime.now().isoformat(),
+                            "message": "New AI requests paused at the next safe dispatch boundary. An in-flight request may finish."})
+    session_store.save(session)
+    return {"run_control": "pause_requested", "provider_in_flight_possible": True}
+
+
+@app.post("/api/sessions/{session_id}/resume")
+async def resume_dispatch(session_id: str, principal: Principal = Depends(current_principal)):
+    """Allow remaining queued tasks to dispatch; do not replay completed calls."""
+    session = _get_session(session_id, principal)
+    if session["status"] != "running" or session.get("run_control") != "pause_requested":
+        raise HTTPException(status_code=409, detail="The review is not paused or cannot be resumed")
+    if session["engine"]._provider_aborted or session["engine"]._provider_failure:
+        raise HTTPException(status_code=409, detail="Provider failure or cancellation requires a new review")
+    session["run_control"] = "running"
+    session["engine"]._dispatch_allowed.set()
+    _append_event(session, {"type": "RUN_RESUMED", "timestamp": datetime.now().isoformat(),
+                            "message": "New model dispatch resumed by the session owner."})
+    session_store.save(session)
+    return {"run_control": "running", "provider_in_flight_possible": False}
+
+
+@app.post("/api/sessions/{session_id}/human-votes")
+async def cast_human_vote(session_id: str, request: HumanVoteRequest,
+                          principal: Principal = Depends(current_principal)):
+    """An authenticated, non-binding vote on a specific model-analysis event."""
+    session = _get_session(session_id, principal)
+    if session["status"] not in ("running", "awaiting_gate", "awaiting_feedback"):
+        raise HTTPException(status_code=409, detail="This review no longer accepts votes")
+    events = session["events"]
+    if request.event_id > len(events):
+        raise HTTPException(status_code=404, detail="Analysis event not available")
+    target = events[request.event_id - 1]
+    if (target.get("event_id") != request.event_id or
+            target.get("type") != "AGENT_ANALYSIS_COMPLETE"):
+        raise HTTPException(status_code=422, detail="Select an actual completed agent analysis to vote on")
+    if request.decision != "agree" and not request.reasoning.strip():
+        raise HTTPException(status_code=422, detail="Provide reasoning when disagreeing or asking for evidence")
+    votes = session.setdefault("human_votes", [])
+    if any(v["event_id"] == request.event_id and v["reviewer"] == principal.subject for v in votes):
+        raise HTTPException(status_code=409, detail="A vote on this analysis is already recorded")
+    if len(votes) >= 100:
+        raise HTTPException(status_code=429, detail="Human voting limit reached")
+    record = {
+        "event_id": request.event_id, "reviewer": principal.subject,
+        "decision": request.decision, "reasoning": request.reasoning.strip(),
+        "agent": target.get("agent"), "cluster": target.get("cluster"),
+        "round": target.get("round"), "timestamp": datetime.now().isoformat(),
+        "effect": "advisory_only_not_an_agent_vote",
+    }
+    votes.append(record)
+    _append_event(session, {"type": "HUMAN_VOTE_RECORDED", **record,
+                            "target_event_id": request.event_id})
+    session_store.save(session)
+    return {"status": "recorded", "vote": record}
+
+
 @app.post("/api/sessions/{session_id}/cancel")
 async def cancel_session(session_id: str, principal: Principal = Depends(current_principal)):
     """Stop new dispatch. Cannot undo or forcibly terminate an in-flight thread."""
@@ -820,6 +893,8 @@ async def cancel_session(session_id: str, principal: Principal = Depends(current
     if session["status"] not in ("created", "running", "awaiting_gate"):
         raise HTTPException(status_code=409, detail="This review cannot be cancelled in its current state")
     session["engine"]._provider_aborted = True
+    session["engine"]._dispatch_allowed.set()  # Wake paused queue so cancellation drains.
+    session["run_control"] = "cancelled"
     session["status"] = "cancellation_requested"
     session["cancellation"] = {
         "requested_by_issuer": principal.issuer,
