@@ -157,6 +157,19 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(main.sessions[second]['status'], 'created')
         self.assertIsNone(main.sessions[second]['task'])
 
+    async def test_sensitive_session_responses_never_cache(self):
+        for path in (f'/api/sessions/{self.sid}/status',
+                     f'/api/sessions/{self.sid}/results',
+                     f'/api/sessions/{self.sid}/gates',
+                     '/api/sessions/not-found/status'):
+            response = await self.client.get(path)
+            self.assertEqual(response.headers['cache-control'], 'no-store, max-age=0')
+            self.assertEqual(response.headers['pragma'], 'no-cache')
+            self.assertEqual(response.headers['x-content-type-options'], 'nosniff')
+        created = await self.client.post('/api/sessions', json={'num_rounds': 1})
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.headers['cache-control'], 'no-store, max-age=0')
+
     async def test_round_jurisdiction_cursor_and_upload_limits(self):
         for body in ({'num_rounds': 0}, {'num_rounds': 4}, {'jurisdiction': 'CH'}):
             self.assertEqual((await self.client.post('/api/sessions', json=body)).status_code, 422)
