@@ -36,6 +36,7 @@ from urllib.parse import urlparse
 
 from config import settings
 from financial.planning import estimate_plan
+from operational.metrics import summarize_sessions
 import session_store
 from provider import ProviderError
 from document_extractor import DocumentExtractionError, extract_document_text
@@ -189,6 +190,12 @@ def _require_local_admin(principal: Principal):
         local_identity.user_role(principal.subject) != "admin"
     ):
         raise HTTPException(status_code=403, detail="Administrator access required")
+
+
+@app.get("/api/admin/operations/summary")
+async def operator_session_summary(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    return summarize_sessions(sessions.values())
 
 
 @app.get("/api/admin/backups/status")
