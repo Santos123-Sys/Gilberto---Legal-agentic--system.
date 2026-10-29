@@ -401,6 +401,12 @@ class DebateEngineV3:
                 )
                 task_trace["status"] = "completed"
                 return result
+            except asyncio.CancelledError:
+                # Cancellation of an asyncio.to_thread future does not kill the
+                # already running provider thread; report uncertainty accurately.
+                task_trace["status"] = "cancelled_in_flight_unknown"
+                self._provider_aborted = True
+                raise
             except asyncio.TimeoutError:
                 task_trace["status"] = "timed_out"
                 self._provider_aborted = True
