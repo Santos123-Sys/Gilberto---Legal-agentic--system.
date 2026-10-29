@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react'
+import { LocalAuthGate } from './LocalAuthGate'
 import { finishLogin, hasPendingCallback, hasAccessToken, isAuthConfigured, logout, startLogin } from './oidc'
 
 /** No legal workspace is mounted before a token is obtained via PKCE. */
 export function AuthGate({ children }) {
+  return import.meta.env.VITE_AUTH_MODE === 'local'
+    ? <LocalAuthGate>{children}</LocalAuthGate>
+    : <OidcAuthGate>{children}</OidcAuthGate>
+}
+
+function OidcAuthGate({ children }) {
   const [status, setStatus] = useState('checking')
   const [message, setMessage] = useState('')
   useEffect(() => {

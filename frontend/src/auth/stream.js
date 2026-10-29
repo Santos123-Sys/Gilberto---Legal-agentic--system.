@@ -1,4 +1,4 @@
-import { authorizedFetch } from './oidc'
+import { authorizedFetch } from './client'
 
 /** Fetch-based authenticated SSE with exact cursor replay and AbortController.
  * Native EventSource cannot supply Authorization headers.

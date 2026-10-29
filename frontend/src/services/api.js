@@ -1,6 +1,6 @@
-import { authorizedFetch } from '../auth/oidc'
+import { authorizedFetch } from '../auth/client'
 import { AuthenticatedEventStream } from '../auth/stream'
-const BASE = import.meta.env.VITE_API_URL || ''
+const BASE = import.meta.env.VITE_AUTH_MODE === 'local' ? '' : (import.meta.env.VITE_API_URL || '')
 
 // ─────────────────────────────────────────────
 //  Core fetch wrapper

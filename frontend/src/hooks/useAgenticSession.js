@@ -1,8 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { authorizedFetch } from '../auth/oidc'
+import { authorizedFetch } from '../auth/client'
 import { AuthenticatedEventStream } from '../auth/stream'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_AUTH_MODE === 'local'
+  ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
 const ACTIVE_SESSION_KEY = 'gilberto.activeSession.v1'
 
 function readSavedSession() {
