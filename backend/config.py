@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     FALLBACK_LLM_API_KEY: str = ""
     FALLBACK_LLM_BASE_URL: str = ""
     FALLBACK_LLM_MODEL: str = ""
+    FALLBACK_LLM_REASONING_EFFORT: str = "medium"
+    # Reasoning tokens count toward completion tokens for supported chat models.
+    FALLBACK_LLM_MAX_COMPLETION_TOKENS: int = Field(default=8192, ge=1024, le=128000)
     FALLBACK_LLM_ALLOWED_HOSTS: str = ""
     FALLBACK_LLM_INPUT_PRICE_USD_PER_1M: float = Field(default=0.0, ge=0, le=1000000)
     FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M: float = Field(default=0.0, ge=0, le=1000000)
