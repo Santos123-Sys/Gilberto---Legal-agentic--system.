@@ -74,7 +74,7 @@ test('uses backend roster only and inspects grounded current agent findings', as
   await expect(panel.getByText('1 configured specialists')).toBeVisible()
   await expect(panel.getByText('Foundation & Document Integrity')).toBeVisible()
   await expect(panel.getByText('Compliance', { exact: true })).toHaveCount(0)
-  await expect(panel.getByText('Devil’s Advocate')).toBeVisible()
+  await expect(panel.getByRole('button', { name: /Devil’s Advocate/ })).toBeVisible()
 
   await emit(page, [
     { event_id: 1, type: 'ROUND_START', round: 1, execution_state: 'RUNNING' },
