@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     LLM_REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0, le=600)
     MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024
 
+    # ── Evidence store (ADR-001, PR-02) ──────
+    # Empty = disabled. Not yet read by the request path: the SQLite session
+    # checkpoints stay authoritative until the staged migration gates pass.
+    EVIDENCE_DATABASE_URL: str = ""
+    # Private directory for original documents; never a public bucket.
+    EVIDENCE_OBJECT_STORE_PATH: str = ""
+
     # ── Observability ────────────────────────
     AGENTOPS_API_KEY: Optional[str] = os.getenv("AGENTOPS_API_KEY", None)
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
