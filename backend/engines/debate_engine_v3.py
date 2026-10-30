@@ -36,6 +36,7 @@ from config import settings
 from scoring import aggregate_clusters, weighted_median
 from legal.claims import assess_agent_claims
 from legal.assurance import synthesis_assurance
+from security.capability_policy import authorize_agent_action
 from models.schemas import AgentAnalysis, ClusterSummary, DevilAdvocateOutput, MasterSynthesis
 
 
@@ -277,6 +278,7 @@ class DebateEngineV3:
         num_rounds: int,
         workflow_type: str,
         provider_mode: str = "primary",
+        backup_consent: bool = False,
     ):
         self.session_id = session_id
         self.num_rounds = num_rounds
@@ -284,6 +286,7 @@ class DebateEngineV3:
         if provider_mode not in ("primary", "backup"):
             raise ValueError("Unsupported provider mode")
         self.provider_mode = provider_mode
+        self.backup_consent = backup_consent is True
         self.current_round = 0
 
         # State
@@ -341,7 +344,7 @@ class DebateEngineV3:
 
     # ── Single agent execution ───────────────
 
-    async def _run_agent(self, agent_cfg: Dict, prompt: str) -> str:
+    async def _run_agent(self, agent_cfg: Dict, prompt: str, *, cluster_id: str) -> str:
         """Run one agent through a bounded, paced provider-call queue."""
         queued_at = time.monotonic()
         async with self._llm_call_semaphore:
@@ -394,6 +397,22 @@ class DebateEngineV3:
                     raise WorkflowError("Provider execution stopped after a timeout")
                 if self.execution_metrics["model_calls"] >= settings.MAX_MODEL_CALLS:
                     raise WorkflowError("Model-call budget reached; partial findings remain available")
+                # Authorize at the actual model-dispatch boundary, independent of
+                # frontend controls, agent prompts and agent-supplied tool lists.
+                decision = authorize_agent_action(
+                    agent_cfg, "model_completion", cluster_id=cluster_id,
+                    round_num=self.current_round, jurisdiction="BR",
+                    provider_mode=self.provider_mode, backup_consent=self.backup_consent,
+                )
+                if decision["outcome"] not in ("ALLOW", "ALLOW_WITH_CONDITIONS"):
+                    await self._emit(self._evt(
+                        "AGENT_POLICY_DENIED", agent=agent_cfg.get("role"),
+                        cluster=cluster_id, decision=decision["outcome"],
+                        reason_code=decision["reason_code"],
+                        policy_version=decision["policy_version"],
+                    ))
+                    raise WorkflowError("Agent capability policy blocked dispatch: "
+                                        + decision["reason_code"])
                 # Reserve conservative upper-bound output BEFORE paid dispatch.
                 # Does not claim actual provider billing or exact tokenizer size.
                 hard_cap = settings.MAX_REVIEW_ESTIMATED_USD
@@ -520,7 +539,7 @@ class DebateEngineV3:
             )
 
             prompt = f"Selected workflow: {self.workflow_type}.\n" + prompt
-            raw = await self._run_agent(agent_cfg, prompt)
+            raw = await self._run_agent(agent_cfg, prompt, cluster_id=cluster_id)
             parsed = AgentAnalysis.model_validate(_safe_json(raw)).model_dump(mode="json")
             parsed["evidence_audit"] = assess_agent_claims(parsed, document_text)
             self._legal_evidence_audits.append(parsed["evidence_audit"])
@@ -569,7 +588,7 @@ class DebateEngineV3:
                 cluster_name=cluster["name"],
             )
 
-            raw = await self._run_agent(agent_cfg, prompt)
+            raw = await self._run_agent(agent_cfg, prompt, cluster_id=cluster_id)
             parsed = _safe_json(raw)
             all_scores[agent_cfg["role"]] = {"raw": raw, "parsed": parsed}
 
@@ -595,7 +614,7 @@ class DebateEngineV3:
             prior_cluster_summaries=self.cluster_summaries,
         )
 
-        raw = await self._run_agent(cluster["manager"], prompt)
+        raw = await self._run_agent(cluster["manager"], prompt, cluster_id=cluster_id)
         parsed = ClusterSummary.model_validate(_safe_json(raw)).model_dump(mode="json")
         if parsed["cluster"] != cluster_id:
             raise ValueError("Cluster manager returned a different workstream")
@@ -637,7 +656,7 @@ class DebateEngineV3:
             round_num=round_num,
         )
 
-        raw = await self._run_agent(DEVILS_ADVOCATE, prompt)
+        raw = await self._run_agent(DEVILS_ADVOCATE, prompt, cluster_id="coordination")
         parsed = DevilAdvocateOutput.model_validate(_safe_json(raw)).model_dump(mode="json")
 
         self.devil_advocate_output = {"raw": raw, "parsed": parsed}
@@ -670,7 +689,7 @@ class DebateEngineV3:
             round_num=round_num,
         )
 
-        raw = await self._run_agent(MASTER_MANAGER, prompt)
+        raw = await self._run_agent(MASTER_MANAGER, prompt, cluster_id="coordination")
         parsed = MasterSynthesis.model_validate(_safe_json(raw)).model_dump(mode="json")
         parsed.update(aggregate_clusters(self.cluster_summaries))
         parsed["legal_assurance"] = synthesis_assurance(self._legal_evidence_audits)
@@ -890,7 +909,7 @@ class DebateEngineV3:
             feedback=feedback,
             cluster_summaries=self.cluster_summaries,
         )
-        routing_raw = await self._run_agent(MASTER_MANAGER, routing_prompt)
+        routing_raw = await self._run_agent(MASTER_MANAGER, routing_prompt, cluster_id="coordination")
         routing = _safe_json(routing_raw)
         target_cluster_id = routing.get("target_cluster")
         if target_cluster_id not in self.cluster_summaries:
