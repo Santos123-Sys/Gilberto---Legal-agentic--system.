@@ -19,6 +19,29 @@ STYLES = {
 }
 
 
+ROLE_STYLES = {
+    "Contract Classifier": "Classifies transaction type and checks contractual structure.",
+    "Document Integrity Verifier": "Examines document consistency and missing records.",
+    "Party Qualification Analyst": "Checks parties, authority and identity information.",
+    "Transactional Context Mapper": "Maps commercial context and connected obligations.",
+    "Price & Payment Analyst": "Reconciles payment mechanics with documentary evidence.",
+    "Penalty Clause Validator": "Tests penalty structure against applicable Brazilian sources.",
+    "Guarantee & Security Analyst": "Examines security provisions and enforceability assumptions.",
+    "Economic Exposure Quantifier": "Quantifies downside scenarios separately from legal conclusions.",
+    "Termination Rights Analyst": "Examines notice, termination triggers and consequences.",
+    "Force Majeure & Hardship Analyst": "Tests exceptional-event assumptions and allocation of risk.",
+    "Dispute Resolution Analyst": "Examines jurisdiction and dispute-resolution clauses.",
+    "Exit Strategy Evaluator": "Maps exit options, conditions and residual obligations.",
+    "LGPD & Data Protection Analyst": "Checks Brazilian personal-data protection obligations.",
+    "Anti-Corruption Compliance Analyst": "Tests integrity controls and anti-corruption provisions.",
+    "Electronic Signature Validator": "Examines signature mechanics and legal validity caveats.",
+    "General Provisions Reviewer": "Audits consistency of general contractual clauses.",
+    "Negotiation Leverage Assessor": "Evaluates negotiation leverage and documented constraints.",
+    "Concession Boundary Optimizer": "Assesses trade-offs and non-negotiable boundaries.",
+    "Counterparty Intent Analyst": "Challenges assumptions about counterparty intent.",
+    "Deal Structure Evaluator": "Compares alternative contractual and transactional structures.",
+}
+
 def identity(cluster_id, definition, kind="specialist"):
     role = definition["role"]
     slug = re.sub(r"[^a-z0-9]+", "-", role.lower()).strip("-")
@@ -28,8 +51,10 @@ def identity(cluster_id, definition, kind="specialist"):
         "cluster_id": cluster_id, "kind": kind,
         "avatar_key": hashlib.sha256(stable_id.encode()).hexdigest()[:12],
         "specialization": definition.get("goal", ""),
-        "working_style": STYLES.get(cluster_id, "Integrative and evidence-focused.")
-            if kind != "adversarial" else "Adversarial and critical; challenges assumptions and evidence gaps.",
+        "working_style": (ROLE_STYLES.get(role, STYLES.get(cluster_id, "Integrative and evidence-focused."))
+                          if kind not in ("adversarial", "orchestrator") else
+                          ("Adversarial and critical; challenges unsupported conclusions." if kind == "adversarial"
+                           else "Integrates validated cluster results and routes mandatory reviews.")),
         "identity_notice": "AI role; does not represent a licensed lawyer.",
     }
 
