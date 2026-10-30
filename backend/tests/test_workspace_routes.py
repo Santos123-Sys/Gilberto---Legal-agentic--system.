@@ -69,3 +69,9 @@ class WorkspaceRouteTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(OSError):
                     main._checkpoint(self.session)
                 telemetry.submit.assert_not_called()
+
+    async def test_observability_diagnostics_require_local_admin(self):
+        for path, method in (("/api/admin/observability/status", "get"),
+                             ("/api/admin/observability/probe", "post")):
+            response = await getattr(self.client, method)(path)
+            self.assertEqual(response.status_code, 403)
