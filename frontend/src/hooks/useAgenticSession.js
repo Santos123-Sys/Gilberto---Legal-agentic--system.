@@ -64,6 +64,7 @@ export function useAgenticSession() {
   const [connectionState, setConnectionState] = useState('idle')
   const [lastEventAt, setLastEventAt] = useState(null)
   const [runControl, setRunControl] = useState('running')
+  const [executionState, setExecutionState] = useState(null)
   const [humanVotes, setHumanVotes] = useState([])
 
 
@@ -215,6 +216,7 @@ export function useAgenticSession() {
           }
         }
         if (event.type !== 'STREAM_END') {
+          if (event.execution_state) setExecutionState(event.execution_state)
           setEvents(prev => [...prev, event])
           setLastEventAt(event.timestamp || new Date().toISOString())
           cursorRef.current = event.event_id || cursorRef.current + 1
@@ -381,10 +383,11 @@ export function useAgenticSession() {
           return
         }
         setSessionId(saved.sessionId)
-        setConfig(saved.config || null)
+        setConfig(remote.config || saved.config || null)
         setDocumentName(remote.document_name || null)
         setStatus(restoredStatus)
         setRunControl(remote.run_control || 'running')
+        setExecutionState(remote.execution_state || null)
         setShowIntentPreview(false)
         if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(remote.status)) {
           connectStream(saved.sessionId, 0)
@@ -571,6 +574,7 @@ export function useAgenticSession() {
     setConnectionState('idle')
     setLastEventAt(null)
     setRunControl('running')
+    setExecutionState(null)
     setHumanVotes([])
   }, [])
 
@@ -586,6 +590,7 @@ export function useAgenticSession() {
     finalSynthesis,
     executionMetrics,
     runControl,
+    executionState,
     humanVotes,
     error,
     config,
