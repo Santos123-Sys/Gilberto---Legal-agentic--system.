@@ -235,6 +235,25 @@ async def operator_session_summary(principal: Principal = Depends(current_princi
     return summarize_sessions(sessions.values())
 
 
+@app.get("/api/admin/observability/status")
+async def observability_status(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    adapter = getattr(app.state, "telemetry", None)
+    return adapter.status() if adapter is not None else {
+        "enabled": False, "delivery": "not_initialized", "content_policy": "metadata_only"
+    }
+
+
+@app.post("/api/admin/observability/probe")
+async def observability_probe(principal: Principal = Depends(current_principal)):
+    """Only an authenticated local administrator can request a synthetic probe."""
+    _require_local_admin(principal)
+    adapter = getattr(app.state, "telemetry", None)
+    if adapter is None or not adapter.enabled:
+        return {"configured": False, "ingestion_accepted": False}
+    return await asyncio.to_thread(adapter.probe)
+
+
 @app.get("/api/admin/backups/status")
 async def backup_status(principal: Principal = Depends(current_principal)):
     _require_local_admin(principal)
