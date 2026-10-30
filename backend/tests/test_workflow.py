@@ -235,7 +235,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_budget_prevents_dispatch(self):
         self.engine.execution_metrics['model_calls'] = settings.MAX_MODEL_CALLS
         with patch('engines.debate_engine_v3._run_crew') as crew:
-            with self.assertRaisesRegex(RuntimeError, 'budget'):
+            with self.assertRaisesRegex(RuntimeError, 'Limite de chamadas ao modelo'):
                 await self.engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'prompt', cluster_id='foundation')
             crew.assert_not_called()
 
@@ -300,10 +300,10 @@ class RunBoundaryTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.05)
             return '{}'
         with patch.object(settings, 'LLM_REQUEST_TIMEOUT_SECONDS', 0.001), patch('engines.debate_engine_v3.asyncio.to_thread', side_effect=slow_provider):
-            with self.assertRaisesRegex(RuntimeError, 'timed out'):
+            with self.assertRaisesRegex(RuntimeError, 'tempo limite'):
                 await engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'small prompt', cluster_id='foundation')
         with patch('engines.debate_engine_v3._run_crew') as crew:
-            with self.assertRaisesRegex(RuntimeError, 'stopped'):
+            with self.assertRaisesRegex(RuntimeError, 'interrompida'):
                 await engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'small prompt', cluster_id='foundation')
             crew.assert_not_called()
         self.assertEqual(engine.execution_metrics['model_tasks'][0]['status'], 'timed_out')

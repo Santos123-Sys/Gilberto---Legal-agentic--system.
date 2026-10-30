@@ -58,7 +58,7 @@ export const test = base.extend({
     page.goto = async (url, options) => {
       const result = await nativeGoto(url, options)
       if (url === '/' || url === 'http://127.0.0.1:5173/') {
-        const signIn = page.getByRole('button', { name: 'Sign in', exact: true })
+        const signIn = page.getByRole('button', { name: 'Entrar', exact: true })
         await expect(signIn).toBeVisible()
         await signIn.click()
         try {

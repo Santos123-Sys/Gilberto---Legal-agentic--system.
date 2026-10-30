@@ -1,51 +1,51 @@
 import { Activity, Check, Circle, Clock3, Loader, Radio, RefreshCw, ShieldAlert } from 'lucide-react'
 
 const STAGES = [
-  { id: 'clusters', label: 'Parallel specialist review', hint: 'Configured legal workstreams review the document through paced model requests.' },
-  { id: 'adversarial', label: 'Adversarial review', hint: 'A separate reviewer looks for gaps, assumptions and weak reasoning.' },
-  { id: 'synthesis', label: 'Manager synthesis', hint: 'The manager reconciles findings and prepares the consolidated analysis.' },
-  { id: 'checks', label: 'Quality and human checks', hint: 'Risk gates are surfaced for your review when the analysis triggers them.' },
-  { id: 'result', label: 'Final analysis', hint: 'The complete report will appear here when the run is ready.' },
+  { id: 'clusters', label: 'Revisão especializada em paralelo', hint: 'As frentes jurídicas configuradas revisam o documento por meio de requisições cadenciadas ao modelo.' },
+  { id: 'adversarial', label: 'Revisão adversarial', hint: 'Um revisor separado procura lacunas, pressupostos e fundamentações frágeis.' },
+  { id: 'synthesis', label: 'Síntese do coordenador', hint: 'O coordenador concilia as conclusões e prepara a análise consolidada.' },
+  { id: 'checks', label: 'Controles de qualidade e revisão humana', hint: 'As etapas de risco são apresentadas para sua revisão quando a análise as aciona.' },
+  { id: 'result', label: 'Análise final', hint: 'O relatório completo aparecerá aqui quando a execução estiver pronta.' },
 ]
 
 const CLUSTERS = [
-  ['foundation', 'Foundation'],
-  ['financial_risk', 'Financial risk'],
-  ['mitigation_exit', 'Mitigation & exit'],
-  ['compliance', 'Compliance'],
-  ['strategy', 'Strategy'],
+  ['foundation', 'Fundamentos'],
+  ['financial_risk', 'Risco financeiro'],
+  ['mitigation_exit', 'Mitigação e saída'],
+  ['compliance', 'Conformidade'],
+  ['strategy', 'Estratégia'],
 ]
 
 function eventCopy(event) {
-  const cluster = event.cluster_name || (typeof event.cluster === 'string' ? event.cluster.replaceAll('_', ' ') : null) || 'Specialist team'
+  const cluster = event.cluster_name || (typeof event.cluster === 'string' ? event.cluster.replaceAll('_', ' ') : null) || 'Equipe especializada'
   const messages = {
-    DEBATE_START: ['Analysis started', 'The document was accepted and the specialist teams are being coordinated.'],
-    ROUND_START: [`Round ${event.round || ''} started`.trim(), 'The workstreams are reviewing the document through paced model requests.'],
-    CLUSTER_START: [`${cluster} review started`, 'This workstream is examining its assigned legal issues.'],
-    AGENT_THINKING: [`${event.agent || 'A specialist'} is reviewing`, 'The agent is preparing its findings for this workstream.'],
-    AGENT_ANALYSIS_COMPLETE: [`${event.agent || 'A specialist'} submitted findings`, 'Its findings are now available to the team review.'],
-    AGENT_VOTING: [`${event.agent || 'A specialist'} is checking peer findings`, 'The team is comparing conclusions and identifying disagreements.'],
-    AGENT_VOTE_CAST: [`${event.agent || 'A specialist'} completed peer review`, 'The agent has submitted its review.'],
-    CLUSTER_COMPLETE: [`${cluster} findings are ready`, 'This workstream has completed its analysis.'],
-    DEVILS_ADVOCATE_START: ['Adversarial review started', 'The reviewer is testing assumptions and looking for gaps across the specialist findings.'],
-    DEVILS_ADVOCATE_COMPLETE: ['Adversarial review complete', `${event.identified_gaps?.length || 0} potential gaps were identified for the synthesis.`],
-    MASTER_MANAGER_START: ['Manager synthesis started', 'The manager is reconciling findings, disagreements and risk signals.'],
-    MASTER_MANAGER_COMPLETE: ['Consolidated analysis prepared', 'The manager has returned the main conclusion and supporting analysis.'],
-    GATE_TRIGGERED: [`Human review requested${event.gate_number ? ` · Gate ${event.gate_number}` : ''}`, event.trigger?.description || event.record?.trigger?.description || 'A risk checkpoint needs your attention before the analysis can proceed.'],
-    GATE_RESOLVED: [`Gate ${event.gate_number || ''} reviewed`.trim(), 'Your decision has been recorded.'],
-    ROUND_COMPLETE: [`Round ${event.round || ''} complete`.trim(), 'The round summary is ready and the debate can move to its next step.'],
-    DEBATE_COMPLETE: ['Analysis run complete', 'The result is being prepared for review.'],
-    PROVIDER_WAIT: ['Waiting for provider capacity', 'The request is queued to respect the configured provider limits.'],
-    CLUSTER_FAILED: [`${cluster} review failed`, `Reason code: ${event.code || 'unexpected_failure'}. The incomplete workstream cannot be used for a final legal analysis.`],
-    ERROR: ['The analysis stopped', event.message || 'The service returned an error.'],
+    DEBATE_START: ['Análise iniciada', 'O documento foi aceito e as equipes especializadas estão sendo coordenadas.'],
+    ROUND_START: [`Rodada ${event.round || ''} iniciada`.replace(/\s+/g, ' '), 'As frentes de análise revisam o documento por meio de requisições cadenciadas ao modelo.'],
+    CLUSTER_START: [`Revisão de ${cluster} iniciada`, 'Esta frente examina as questões jurídicas que lhe foram atribuídas.'],
+    AGENT_THINKING: [`${event.agent || 'Um especialista'} está revisando`, 'O agente está preparando suas conclusões para esta frente.'],
+    AGENT_ANALYSIS_COMPLETE: [`${event.agent || 'Um especialista'} apresentou conclusões`, 'Suas conclusões estão disponíveis para a revisão da equipe.'],
+    AGENT_VOTING: [`${event.agent || 'Um especialista'} está avaliando as conclusões dos pares`, 'A equipe compara conclusões e identifica divergências.'],
+    AGENT_VOTE_CAST: [`${event.agent || 'Um especialista'} concluiu a revisão entre pares`, 'O agente apresentou sua revisão.'],
+    CLUSTER_COMPLETE: [`Conclusões de ${cluster} prontas`, 'Esta frente concluiu sua análise.'],
+    DEVILS_ADVOCATE_START: ['Revisão adversarial iniciada', 'O revisor testa pressupostos e procura lacunas nas conclusões dos especialistas.'],
+    DEVILS_ADVOCATE_COMPLETE: ['Revisão adversarial concluída', `${event.identified_gaps?.length || 0} possível(is) lacuna(s) identificada(s) para a síntese.`],
+    MASTER_MANAGER_START: ['Síntese do coordenador iniciada', 'O coordenador concilia conclusões, divergências e sinais de risco.'],
+    MASTER_MANAGER_COMPLETE: ['Análise consolidada preparada', 'O coordenador apresentou a conclusão principal e a análise que a fundamenta.'],
+    GATE_TRIGGERED: [`Revisão humana solicitada${event.gate_number ? ` · Etapa ${event.gate_number}` : ''}`, event.trigger?.description || event.record?.trigger?.description || 'Um ponto de controle de risco exige sua atenção antes que a análise prossiga.'],
+    GATE_RESOLVED: [`Etapa ${event.gate_number || ''} revisada`.replace(/\s+/g, ' '), 'Sua decisão foi registrada.'],
+    ROUND_COMPLETE: [`Rodada ${event.round || ''} concluída`.replace(/\s+/g, ' '), 'O resumo da rodada está pronto e o debate pode passar à próxima etapa.'],
+    DEBATE_COMPLETE: ['Execução da análise concluída', 'O resultado está sendo preparado para revisão.'],
+    PROVIDER_WAIT: ['Aguardando capacidade do provedor', 'A requisição está na fila para respeitar os limites configurados do provedor.'],
+    CLUSTER_FAILED: [`Falha na revisão de ${cluster}`, `Código do motivo: ${event.code || 'unexpected_failure'}. A frente incompleta não pode ser usada em uma análise jurídica final.`],
+    ERROR: ['A análise foi interrompida', event.message || 'O serviço retornou um erro.'],
   }
-  return messages[event.type] || [event.type?.replaceAll('_', ' ').toLowerCase() || 'Analysis update', 'The analysis workflow recorded a new update.']
+  return messages[event.type] || [event.type?.replaceAll('_', ' ').toLowerCase() || 'Atualização da análise', 'O fluxo da análise registrou uma nova atualização.']
 }
 
 function eventTime(value) {
   if (!value) return ''
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
 function deriveStage(events) {
@@ -76,34 +76,34 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
   const configured = events.find(event => event.type === 'DEBATE_START')?.active_clusters
   const visibleClusters = configured ? CLUSTERS.filter(([id]) => configured.includes(id)) : []
   const connection = stopped && connectionState === 'closed'
-    ? { label: 'Updates closed after failure', className: 'text-red-300', icon: <ShieldAlert size={13} /> }
+    ? { label: 'Atualizações encerradas após falha', className: 'text-red-300', icon: <ShieldAlert size={13} /> }
     : {
-    connecting: { label: 'Connecting to live updates', className: 'text-amber-300', icon: <Loader size={13} className="animate-spin" /> },
-    connected: { label: 'Live updates connected', className: 'text-emerald-300', icon: <Radio size={13} /> },
-    reconnecting: { label: 'Reconnecting to live updates', className: 'text-amber-300', icon: <Loader size={13} className="animate-spin" /> },
-    disconnected: { label: 'Live updates disconnected', className: 'text-red-300', icon: <ShieldAlert size={13} /> },
-    closed: { label: 'Run updates finished', className: 'text-slate-400', icon: <Check size={13} /> },
-    idle: { label: 'Preparing live updates', className: 'text-slate-400', icon: <Clock3 size={13} /> },
-  }[connectionState] || { label: 'Preparing live updates', className: 'text-slate-400', icon: <Clock3 size={13} /> }
+    connecting: { label: 'Conectando às atualizações em tempo real', className: 'text-amber-300', icon: <Loader size={13} className="animate-spin" /> },
+    connected: { label: 'Atualizações em tempo real conectadas', className: 'text-emerald-300', icon: <Radio size={13} /> },
+    reconnecting: { label: 'Reconectando às atualizações em tempo real', className: 'text-amber-300', icon: <Loader size={13} className="animate-spin" /> },
+    disconnected: { label: 'Atualizações em tempo real desconectadas', className: 'text-red-300', icon: <ShieldAlert size={13} /> },
+    closed: { label: 'Atualizações da execução encerradas', className: 'text-slate-400', icon: <Check size={13} /> },
+    idle: { label: 'Preparando as atualizações em tempo real', className: 'text-slate-400', icon: <Clock3 size={13} /> },
+  }[connectionState] || { label: 'Preparando as atualizações em tempo real', className: 'text-slate-400', icon: <Clock3 size={13} /> }
 
   return (
     <section className="space-y-5">
       <div className="card p-5 sm:p-6 border border-gold-500/25">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-gold-400">Live analysis</p>
-            <p className="sr-only" role="status">{stopped ? 'Analysis stopped' : STAGES[currentStage].label}</p>
-            <h2 className="font-display text-2xl text-slate-100 mt-1">{stopping ? 'Cancellation requested — stopping work' : stopped ? 'Analysis stopped — review incomplete' : 'Your legal teams are working'}</h2>
-            <p className="text-sm text-slate-400 mt-2 max-w-2xl">{stopped ? 'Only previously received findings are shown. This is not an accepted or fully verified legal analysis.' : 'Follow the meaningful stages of the debate here. The final analysis and any review requests will appear in this workspace.'}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-gold-400">Análise em tempo real</p>
+            <p className="sr-only" role="status">{stopped ? 'Análise interrompida' : STAGES[currentStage].label}</p>
+            <h2 className="font-display text-2xl text-slate-100 mt-1">{stopping ? 'Cancelamento solicitado — encerrando o trabalho' : stopped ? 'Análise interrompida — revisão incompleta' : 'Suas equipes jurídicas estão trabalhando'}</h2>
+            <p className="text-sm text-slate-400 mt-2 max-w-2xl">{stopped ? 'Somente as conclusões já recebidas são exibidas. Esta não é uma análise jurídica aceita nem integralmente verificada.' : 'Acompanhe aqui as etapas relevantes do debate. A análise final e eventuais pedidos de revisão aparecerão nesta área de trabalho.'}</p>
           </div>
           <div className="rounded-xl border border-slate-700/70 bg-slate-900/60 px-4 py-3 min-w-44">
             <div className={`flex items-center gap-2 text-xs ${connection.className}`}>
               {connection.icon}<span>{connection.label}</span>
             </div>
-            <p className="text-xs text-slate-500 mt-2">{lastEventAt ? `Last update ${eventTime(lastEventAt)}` : 'Waiting for the first progress update'}</p>
+            <p className="text-xs text-slate-500 mt-2">{lastEventAt ? `Última atualização às ${eventTime(lastEventAt)}` : 'Aguardando a primeira atualização de progresso'}</p>
             {(connectionState === 'disconnected' || connectionState === 'reconnecting') && (
               <button onClick={onReconnect} className="mt-3 inline-flex items-center gap-1.5 text-xs text-gold-300 hover:text-gold-200" type="button">
-                <RefreshCw size={12} /> Reconnect
+                <RefreshCw size={12} /> Reconectar
               </button>
             )}
           </div>
@@ -126,8 +126,8 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-700/50 mt-5 pt-4 text-xs">
-          <span className="text-slate-400">Debate round <strong className="text-slate-200">{currentRound} of {totalRounds || 1}</strong></span>
-          <span className="text-slate-500">{rounds.length} {rounds.length === 1 ? 'round' : 'rounds'} summarized · {events.length} progress updates</span>
+          <span className="text-slate-400">Rodada do debate <strong className="text-slate-200">{currentRound} de {totalRounds || 1}</strong></span>
+          <span className="text-slate-500">{rounds.length} {rounds.length === 1 ? 'rodada resumida' : 'rodadas resumidas'} · {events.length} atualizações de progresso</span>
         </div>
       </div>
 
@@ -135,7 +135,7 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
             <Activity size={15} className="text-gold-400" />
-            <h3 className="font-display text-lg text-slate-100">What the agents have done</h3>
+            <h3 className="font-display text-lg text-slate-100">O que os agentes já fizeram</h3>
           </div>
           {latest.length ? (
             <ol className="space-y-0">
@@ -159,7 +159,7 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
           ) : (
             <div className="flex items-center gap-3 py-5 text-sm text-slate-400">
               <Loader size={16} className="animate-spin text-gold-400" />
-              The backend accepted the run. Waiting for the first agent event…
+              O servidor aceitou a execução. Aguardando o primeiro evento dos agentes…
             </div>
           )}
         </div>
@@ -167,7 +167,7 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
             <span className="text-lg">⚖️</span>
-            <h3 className="font-display text-lg text-slate-100">Parallel review teams</h3>
+            <h3 className="font-display text-lg text-slate-100">Equipes de revisão em paralelo</h3>
           </div>
           <div className="space-y-2">
             {visibleClusters.map(([id, name]) => {
@@ -177,12 +177,12 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
                 <span className="text-sm text-slate-300">{name}</span>
                 <span className={`inline-flex items-center gap-1.5 text-xs ${complete ? 'text-emerald-300' : active ? 'text-gold-300' : 'text-slate-500'}`}>
                   {complete ? <Check size={13} /> : active ? <Loader size={12} className="animate-spin" /> : <Circle size={11} />}
-                  {complete ? 'Findings ready' : active ? 'Working' : 'Queued'}
+                  {complete ? 'Conclusões prontas' : active ? 'Em andamento' : 'Na fila'}
                 </span>
               </div>
             })}
           </div>
-          <p className="text-[11px] leading-relaxed text-slate-500 mt-4">Progress reflects events received from the backend; no percentage or completion time is estimated.</p>
+          <p className="text-[11px] leading-relaxed text-slate-500 mt-4">O progresso reflete os eventos recebidos do servidor; nenhum percentual ou prazo de conclusão é estimado.</p>
         </div>
       </div>
     </section>

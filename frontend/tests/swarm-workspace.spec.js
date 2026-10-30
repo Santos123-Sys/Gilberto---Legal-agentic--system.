@@ -53,8 +53,8 @@ async function start(page) {
     name: 'synthetic-br-law.txt', mimeType: 'text/plain',
     buffer: Buffer.from('Synthetic contract for a Brazilian-law-only review'),
   })
-  await page.getByRole('button', { name: 'Start Debate' }).click()
-  await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
+  await page.getByRole('button', { name: 'Iniciar debate' }).click()
+  await page.getByRole('button', { name: 'Prosseguir com a análise' }).click()
   await expect.poll(() => page.evaluate(() => window.testStreams.length)).toBe(1)
 }
 
@@ -69,9 +69,9 @@ async function emit(page, rows) {
 
 test('uses backend roster only and inspects grounded current agent findings', async ({ page }) => {
   await start(page)
-  const panel = page.getByRole('region', { name: 'Gilberto swarm command center' })
+  const panel = page.getByRole('region', { name: 'Central de comando dos agentes do Gilberto' })
   await expect(panel).toBeVisible()
-  await expect(panel.getByText('1 configured specialists')).toBeVisible()
+  await expect(panel.getByText('1 especialista configurado')).toBeVisible()
   await expect(panel.getByText('Foundation & Document Integrity')).toBeVisible()
   await expect(panel.getByText('Compliance', { exact: true })).toHaveCount(0)
   await expect(panel.getByRole('button', { name: /Devil’s Advocate/ })).toBeVisible()
@@ -86,13 +86,13 @@ test('uses backend roster only and inspects grounded current agent findings', as
         evidence_audit: { source_verification_status: 'NOT_VERIFIED' } } },
   ])
   await panel.getByRole('button', { name: /Brazilian Contract Classifier/ }).click()
-  const inspector = page.getByRole('complementary', { name: 'Run inspector' })
+  const inspector = page.getByRole('complementary', { name: 'Inspetor da execução' })
   await expect(inspector.getByText('Synthetic termination clause needs legal review.')).toBeVisible()
-  await inspector.getByRole('tab', { name: 'Evidence' }).click()
+  await inspector.getByRole('tab', { name: 'Provas' }).click()
   await expect(inspector.getByText('Synthetic contract section 4')).toBeVisible()
-  await expect(inspector.getByText('Verification: NOT_VERIFIED')).toBeVisible()
-  await inspector.getByRole('tab', { name: 'Costs' }).click()
-  await expect(inspector.getByText('Provider usage not yet reported')).toBeVisible()
+  await expect(inspector.getByText('Verificação: NOT_VERIFIED')).toBeVisible()
+  await inspector.getByRole('tab', { name: 'Custos' }).click()
+  await expect(inspector.getByText('Uso ainda não informado pelo provedor')).toBeVisible()
 })
 
 test('isolates old round findings and votes from current decision workspace', async ({ page }) => {
@@ -106,24 +106,24 @@ test('isolates old round findings and votes from current decision workspace', as
       agent_id: roster.agents[0].id, cluster: 'foundation', round: 1, scores: { score: 2 } },
     { event_id: 4, type: 'ROUND_START', round: 2 },
   ])
-  const panel = page.getByRole('region', { name: 'Gilberto swarm command center' })
-  await expect(panel.getByText('0 current-round analyses recorded')).toBeVisible()
+  const panel = page.getByRole('region', { name: 'Central de comando dos agentes do Gilberto' })
+  await expect(panel.getByText('0 análises registradas na rodada atual')).toBeVisible()
   await panel.getByRole('button', { name: /Brazilian Contract Classifier/ }).click()
-  const inspector = page.getByRole('complementary', { name: 'Run inspector' })
-  await expect(inspector.getByText('No completed analysis in the current round')).toBeVisible()
+  const inspector = page.getByRole('complementary', { name: 'Inspetor da execução' })
+  await expect(inspector.getByText('Nenhuma análise concluída na rodada atual')).toBeVisible()
   await expect(inspector.getByText('Old synthetic finding')).toHaveCount(0)
-  await inspector.getByRole('tab', { name: 'Votes' }).click()
-  await expect(inspector.getByText('No current-round model peer votes.')).toBeVisible()
+  await inspector.getByRole('tab', { name: 'Votos' }).click()
+  await expect(inspector.getByText('Nenhum voto entre modelos na rodada atual.')).toBeVisible()
 })
 
 test('inspector remains navigable on narrow screens without fictitious agents', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await start(page)
-  await expect(page.getByRole('link', { name: 'Inspect' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Events' })).toBeVisible()
-  await page.getByRole('tab', { name: 'Events' }).click()
-  await expect(page.getByText('No backend events recorded.')).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Review results' })).toHaveAttribute('href', '#gilberto-review-desk')
+  await expect(page.getByRole('link', { name: 'Inspecionar' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Eventos' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Eventos' }).click()
+  await expect(page.getByText('Nenhum evento do servidor registrado.')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Revisar resultados' })).toHaveAttribute('href', '#gilberto-review-desk')
 })
 
 
@@ -148,13 +148,13 @@ test('shows source-level contract verification without certifying legal authorit
       cluster_name: 'Foundation', round: 1, revision: 0,
       summary: { aggregated_score: 7, classification: 'Relevante', dissent_notes: 'Manager flags source dispute' } },
   ])
-  await page.getByRole('tab', { name: 'History' }).click()
-  const history = page.getByRole('region', { name: 'Historical legal findings and dissent' })
+  await page.getByRole('tab', { name: 'Histórico' }).click()
+  const history = page.getByRole('region', { name: 'Histórico de conclusões jurídicas e divergências' })
   await expect(history.getByText('Notice is due')).toBeVisible()
   await expect(history.getByText('Synthetic contract 12.2')).toBeVisible()
   await expect(history.getByText('present_in_supplied_document')).toBeVisible()
-  await expect(history.getByText('Legal applicability and source text: NOT INDEPENDENTLY VERIFIED')).toBeVisible()
+  await expect(history.getByText('Aplicabilidade jurídica e texto da fonte: NÃO VERIFICADOS DE FORMA INDEPENDENTE')).toBeVisible()
   await expect(history.getByText('Manager flags source dispute')).toBeVisible()
-  await page.getByRole('tab', { name: 'Tools' }).click()
-  await expect(page.getByText('No independently identified external tool-call lifecycle', { exact: false })).toBeVisible()
+  await page.getByRole('tab', { name: 'Ferramentas' }).click()
+  await expect(page.getByText('nenhum ciclo de chamadas a ferramentas externas', { exact: false })).toBeVisible()
 })

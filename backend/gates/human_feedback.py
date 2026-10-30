@@ -85,20 +85,20 @@ class HumanFeedbackGate:
 
         if decision == "approve":
             self.status = GateStatus.APPROVED
-            self.resolution = "Human expert approved the analysis as-is."
+            self.resolution = "O especialista humano aprovou a análise sem alterações."
         elif decision == "override":
             self.status = GateStatus.OVERRIDDEN
             self.resolution = (
-                f"Human expert overrode score to {override_score}"
+                f"O especialista humano substituiu a pontuação por {override_score}"
                 if override_score is not None
-                else "Human expert overrode the classification."
+                else "O especialista humano substituiu a classificação."
             )
         elif decision == "request_reanalysis":
             self.status = GateStatus.REANALYSIS_REQUESTED
-            self.resolution = "Human expert requested re-analysis of affected components."
+            self.resolution = "O especialista humano solicitou a reanálise dos componentes afetados."
         else:
             self.status = GateStatus.SKIPPED
-            self.resolution = "Gate was skipped."
+            self.resolution = "A etapa de revisão foi ignorada."
 
         self.timestamp_resolved = datetime.now().isoformat()
         return self.to_dict()
@@ -132,7 +132,7 @@ class GateManager:
                     trigger_value=conf,
                     threshold=settings.GATE_1_CONFIDENCE_THRESHOLD,
                     affected_cluster=cid,
-                    description=f"Cluster {cid} confidence {conf} < {settings.GATE_1_CONFIDENCE_THRESHOLD}",
+                    description=f"Confiança do grupo {cid}: {conf} < {settings.GATE_1_CONFIDENCE_THRESHOLD}",
                 )
                 self.gates.append(gate)
                 new_gates.append(gate)
@@ -147,7 +147,7 @@ class GateManager:
                     gate_type=GateType.DEVIL_ADVOCATE,
                     trigger_value=gap_score,
                     threshold=settings.GATE_2_DEVIL_ADVOCATE_THRESHOLD,
-                    description=f"DA gap severity {gap_score} > {settings.GATE_2_DEVIL_ADVOCATE_THRESHOLD}",
+                    description=f"Gravidade das lacunas apontadas pelo advogado do diabo: {gap_score} > {settings.GATE_2_DEVIL_ADVOCATE_THRESHOLD}",
                 )
                 self.gates.append(gate)
                 new_gates.append(gate)
@@ -160,7 +160,7 @@ class GateManager:
                 gate_type=GateType.CRITICO_CLASSIFICATION,
                 trigger_value=master_parsed.get("final_score", 0),
                 threshold=8.0,
-                description=f"Final classification is Crítico",
+                description="A classificação final é Crítico",
             )
             self.gates.append(gate)
             new_gates.append(gate)

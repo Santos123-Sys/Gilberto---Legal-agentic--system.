@@ -12,42 +12,42 @@ const ROLE_ICONS = {
 
 const STATUS_CONFIG = {
   thinking: {
-    label: 'Analyzing…',
+    label: 'Analisando…',
     color: 'text-gold-400',
     bg: 'border-gold-500/40 bg-gold-500/5',
     dot: 'bg-gold-400 agent-active',
     icon: <Brain size={12} className="animate-pulse" />,
   },
   done: {
-    label: 'Analysis complete',
+    label: 'Análise concluída',
     color: 'text-green-400',
     bg: 'border-green-500/20 bg-green-500/5',
     dot: 'bg-green-400',
     icon: <CheckCircle size={12} />,
   },
   voting: {
-    label: 'Reviewing peers…',
+    label: 'Revisando os pares…',
     color: 'text-blue-400',
     bg: 'border-blue-500/20 bg-blue-500/5',
     dot: 'bg-blue-400 animate-pulse',
     icon: <Vote size={12} />,
   },
   voted: {
-    label: 'Voted',
+    label: 'Votou',
     color: 'text-purple-400',
     bg: 'border-purple-500/20 bg-purple-500/5',
     dot: 'bg-purple-400',
     icon: <Vote size={12} />,
   },
   new: {
-    label: 'New agent (from feedback)',
+    label: 'Novo agente (a partir de comentários)',
     color: 'text-cyan-400',
     bg: 'border-cyan-500/30 bg-cyan-500/5',
     dot: 'bg-cyan-400',
     icon: <Sparkles size={12} />,
   },
   idle: {
-    label: 'Standby',
+    label: 'Em espera',
     color: 'text-slate-500',
     bg: 'border-slate-700 bg-transparent',
     dot: 'bg-slate-600',
@@ -62,14 +62,14 @@ function safeParseFindings(parsed) {
   return findings.filter(f => f && typeof f === 'object').slice(0, 3).map(f => ({
     ...f,
     severity: typeof f.severity === 'string' ? f.severity : 'medium',
-    finding: typeof f.finding === 'string' ? f.finding : f.finding == null ? 'Finding details are unavailable.' : JSON.stringify(f.finding),
+    finding: typeof f.finding === 'string' ? f.finding : f.finding == null ? 'Os detalhes da conclusão estão indisponíveis.' : JSON.stringify(f.finding),
   }))
 }
 
 export function AgentCard({ role, agentData }) {
   const statusKey = agentData?.status || 'idle'
   const config = STATUS_CONFIG[statusKey] || STATUS_CONFIG.idle
-  const safeRole = typeof role === 'string' ? role : 'Legal specialist'
+  const safeRole = typeof role === 'string' ? role : 'Especialista jurídico'
   const icon = ROLE_ICONS[safeRole] || ROLE_ICONS[Object.keys(ROLE_ICONS).find(k => safeRole.includes(k.split(' ')[0]))] || '🤖'
   const findings = safeParseFindings(agentData?.parsed)
 

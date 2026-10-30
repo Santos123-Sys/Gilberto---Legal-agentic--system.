@@ -64,7 +64,7 @@ def project_event(event: dict, run_id: str | None = None) -> dict:
                   "runId": metadata["runId"], "metadata": metadata}
     elif event["type"] == "ERROR":
         # Never expose provider payloads, legal content or exception strings.
-        result = {"type": "RUN_ERROR", "message": "Legal analysis failed; inspect authorized session status.",
+        result = {"type": "RUN_ERROR", "message": "A análise jurídica falhou; consulte o status autorizado da sessão.",
                   "code": "GILBERTO_EXECUTION_ERROR", "metadata": metadata}
     elif event["type"] in ("CLUSTER_START", "CLUSTER_COMPLETE") and event.get("cluster"):
         result = {"type": "STEP_STARTED" if event["type"] == "CLUSTER_START" else "STEP_FINISHED",

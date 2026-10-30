@@ -2,11 +2,11 @@ import React, { useMemo } from 'react'
 import { Brain, CheckCircle, Vote, Loader, AlertTriangle } from 'lucide-react'
 
 const CLUSTER_CONFIG = {
-  foundation: { name: 'Foundation', icon: '🏛️', color: '#6366f1' },
-  financial_risk: { name: 'Financial Risk', icon: '💰', color: '#f59e0b' },
-  mitigation_exit: { name: 'Mitigation & Exit', icon: '🛡️', color: '#10b981' },
-  compliance: { name: 'Compliance', icon: '⚖️', color: '#8b5cf6' },
-  strategy: { name: 'Strategy', icon: '♟️', color: '#ec4899' },
+  foundation: { name: 'Fundamentos', icon: '🏛️', color: '#6366f1' },
+  financial_risk: { name: 'Risco financeiro', icon: '💰', color: '#f59e0b' },
+  mitigation_exit: { name: 'Mitigação e saída', icon: '🛡️', color: '#10b981' },
+  compliance: { name: 'Conformidade', icon: '⚖️', color: '#8b5cf6' },
+  strategy: { name: 'Estratégia', icon: '♟️', color: '#ec4899' },
 }
 
 // A completed result from a previous round or revision must not mark the
@@ -55,10 +55,10 @@ function getAgentStatuses(clusterId, events) {
 }
 
 const STATUS_CONFIG = {
-  pending: { label: 'Waiting', color: 'slate', animated: false },
-  running: { label: 'Analyzing', color: 'gold', animated: true },
-  voting: { label: 'Voting', color: 'blue', animated: true },
-  complete: { label: 'Complete', color: 'green', animated: false },
+  pending: { label: 'Aguardando', color: 'slate', animated: false },
+  running: { label: 'Analisando', color: 'gold', animated: true },
+  voting: { label: 'Votando', color: 'blue', animated: true },
+  complete: { label: 'Concluído', color: 'green', animated: false },
 }
 
 export function AgentClusterPanel({ events, activeClusters }) {
@@ -85,7 +85,7 @@ export function AgentClusterPanel({ events, activeClusters }) {
     : 'pending'
 
   return (
-    <section aria-label="Agent workspace" className="space-y-4">
+    <section aria-label="Área de trabalho dos agentes" className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {clusters.map(cluster => (
           <ClusterCard key={cluster.id} cluster={cluster} />
@@ -128,7 +128,7 @@ function ClusterCard({ cluster }) {
       {cluster.confidence !== null && (
         <div className="mb-3">
           <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-            <span>Confidence</span>
+            <span>Confiança</span>
             <span className={cluster.confidence < 3 ? 'text-yellow-400' : 'text-green-400'}>
               {cluster.confidence}/5
             </span>
@@ -150,7 +150,7 @@ function ClusterCard({ cluster }) {
           <AgentRow key={agent.role} agent={agent} />
         ))}
         {cluster.agents.length === 0 && cluster.status === 'pending' && (
-          <p className="text-xs text-slate-600 italic">Waiting to start…</p>
+          <p className="text-xs text-slate-600 italic">Aguardando início…</p>
         )}
       </div>
     </div>
