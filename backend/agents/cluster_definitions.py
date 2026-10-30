@@ -1,475 +1,513 @@
 """
-agents/cluster_definitions.py — Cluster & Agent Definitions
+agents/cluster_definitions.py — Definições das frentes e dos agentes
 ═══════════════════════════════════════════════════════════════════════
-Defines the 5-cluster × 4-agent architecture + Devil's Advocate + Managers.
+Define a arquitetura de 5 frentes × 4 agentes + advogado do diabo + coordenadores.
 
-ARCHITECTURE (v3 — Parallel-Ready):
+ARQUITETURA (v3 — execução paralela):
   ┌─────────────────────────────────────────────────────────┐
-  │              MASTER MANAGER (Orchestrator)               │
-  │         Synthesis · Gate Routing · Final Output          │
+  │          COORDENADOR-GERAL (orquestrador)                │
+  │   Síntese · Etapas de revisão humana · Resultado final   │
   └──────────────┬──────────────────────────┬───────────────┘
                  │                          │
     ┌────────────┴──────────┐    ┌─────────┴──────────────┐
-    │   PARALLEL CLUSTERS   │    │   DEVIL'S ADVOCATE     │
-    │  ┌─────┐┌─────┐┌────┐ │    │  (runs after clusters) │
-    │  │C1   ││C2   ││C3  │ │    │                        │
-    │  │Found││Fin  ││Mit │ │    │  Receives ALL cluster  │
-    │  │ation││Risk ││Exit│ │    │  outputs as context    │
-    │  └─────┘└─────┘└────┘ │    │                        │
-    │  ┌─────┐┌─────────┐   │    │  Identifies gaps,      │
-    │  │C4   ││C5       │   │    │  weak points,          │
-    │  │Comp ││Strategy │   │    │  unstated assumptions  │
-    │  │lian ││         │   │    │                        │
-    │  └─────┘└─────────┘   │    │  Produces gap_severity │
-    └───────────────────────┘    │  score for Gate 2      │
-                                 └────────────────────────┘
+    │   FRENTES PARALELAS   │    │   ADVOGADO DO DIABO    │
+    │  C1 Fundamentos       │    │  (após as frentes)     │
+    │  C2 Risco financeiro  │    │  Recebe TODOS os       │
+    │  C3 Mitigação/saída   │    │  resultados; aponta    │
+    │  C4 Conformidade      │    │  lacunas e premissas;  │
+    │  C5 Estratégia        │    │  gera gap_severity     │
+    └───────────────────────┘    └────────────────────────┘
 
-VOTING: Weighted median by confidence within each cluster.
-GATES:  Three-tier human feedback (low confidence / DA gaps / Crítico).
+VOTAÇÃO: mediana ponderada pela confiança dentro de cada frente.
+ETAPAS:  três níveis de revisão humana (baixa confiança / lacunas / Crítico).
+
+IDIOMA E IDENTIFICADORES
+Todo texto lido pelo modelo ou por pessoas está em português do Brasil.
+Cada agente tem uma ``key`` estável (o identificador histórico, derivado do
+antigo nome em inglês). Os IDs de agentes nos registros, checkpoints e na
+política de capacidades derivam dessa ``key``, nunca do nome exibido, para
+que traduzir ou renomear um papel não altere identidades já registradas.
+Os nomes de campos JSON e os valores enumerados das saídas (OK, WARNING,
+LOW, LEGAL etc.) permanecem inalterados porque são interpretados pelo código.
 """
 
 from typing import Any, Dict, List, Optional
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  CLUSTER DEFINITIONS
+#  DEFINIÇÕES DAS FRENTES
 # ═════════════════════════════════════════════════════════════════════
 
 CLUSTERS: Dict[str, Dict] = {
 
-    # ── CLUSTER 1: FOUNDATION ─────────────────────────────────────
+    # ── FRENTE 1: FUNDAMENTOS ─────────────────────────────────────
     "foundation": {
         "id": "foundation",
-        "name": "Foundation & Document Integrity",
-        "short_name": "Foundation",
+        "name": "Fundamentos e Integridade Documental",
+        "short_name": "Fundamentos",
+        "focused_key": "foundation-document-integrity-reviewer",
         "passos": "Passos 0–2",
         "icon": "🏛️",
         "color": "#6366f1",
         "description": (
-            "Contract classification, document integrity verification, "
-            "party qualification, and transactional context mapping."
+            "Classificação do contrato, verificação da integridade do documento, "
+            "qualificação das partes e mapeamento do contexto da operação."
         ),
         "agents": [
             {
-                "role": "Contract Classifier",
+                "key": "contract-classifier",
+                "role": "Classificador de Contratos",
                 "goal": (
-                    "Classify the contract type, complexity level, and applicable "
-                    "legal regime with precision."
+                    "Classificar com precisão o tipo de contrato, seu nível de "
+                    "complexidade e o regime jurídico aplicável."
                 ),
                 "backstory": (
-                    "You are a senior Brazilian contracts attorney with 20 years of "
-                    "experience in contract taxonomy. You classify contracts by type, "
-                    "regime (Civil Code, CDC, CLT, special laws), and complexity. "
-                    "You never speculate — you classify based on explicit textual evidence."
+                    "Você é um advogado sênior de contratos no Brasil, com 20 anos de "
+                    "experiência em tipologia contratual. Você classifica contratos por "
+                    "tipo, regime (Código Civil, CDC, CLT, leis especiais) e complexidade. "
+                    "Você nunca especula — classifica com base em evidências textuais explícitas."
                 ),
                 "expertise": ["contract_classification", "legal_regime", "complexity_assessment"],
             },
             {
-                "role": "Document Integrity Verifier",
+                "key": "document-integrity-verifier",
+                "role": "Verificador de Integridade Documental",
                 "goal": (
-                    "Detect blanks, missing annexes, broken cross-references, and "
-                    "inconsistencies between recitals and operative clauses."
+                    "Detectar campos em branco, anexos ausentes, remissões quebradas e "
+                    "incoerências entre os considerandos e as cláusulas operativas."
                 ),
                 "backstory": (
-                    "You are a meticulous document review specialist. Your job is to "
-                    "find every blank field, missing signature, broken reference, and "
-                    "inconsistency. You treat every document as potentially defective "
-                    "until proven complete."
+                    "Você é um especialista meticuloso em revisão documental. Sua tarefa é "
+                    "encontrar todo campo em branco, assinatura ausente, remissão quebrada e "
+                    "incoerência. Você trata todo documento como potencialmente defeituoso "
+                    "até que se comprove que está completo."
                 ),
                 "expertise": ["document_integrity", "completeness_check", "consistency"],
             },
             {
-                "role": "Party Qualification Analyst",
+                "key": "party-qualification-analyst",
+                "role": "Analista de Qualificação das Partes",
                 "goal": (
-                    "Qualify all parties and intervenors (CNPJ/CPF, address, "
-                    "representative) and validate powers of representation."
+                    "Qualificar todas as partes e intervenientes (CNPJ/CPF, endereço, "
+                    "representante) e validar os poderes de representação."
                 ),
                 "backstory": (
-                    "You are a corporate law specialist focused on party qualification. "
-                    "You verify CNPJ/CPF validity, check representation powers against "
-                    "corporate bylaws, and flag any authority gaps."
+                    "Você é especialista em direito societário com foco na qualificação das "
+                    "partes. Você verifica a validade de CNPJ/CPF, confere os poderes de "
+                    "representação à luz dos atos constitutivos e aponta qualquer lacuna de poderes."
                 ),
                 "expertise": ["party_qualification", "corporate_authority", "representation"],
             },
             {
-                "role": "Transactional Context Mapper",
+                "key": "transactional-context-mapper",
+                "role": "Mapeador do Contexto da Operação",
                 "goal": (
-                    "Map the commercial context, industry sector, and regulatory "
-                    "environment surrounding the transaction."
+                    "Mapear o contexto comercial, o setor econômico e o ambiente "
+                    "regulatório que envolvem a operação."
                 ),
                 "backstory": (
-                    "You are a business-savvy legal analyst who understands that "
-                    "contracts don't exist in a vacuum. You map industry context, "
-                    "regulatory environment, and commercial drivers."
+                    "Você é um analista jurídico com visão de negócios, ciente de que "
+                    "contratos não existem no vácuo. Você mapeia o contexto setorial, o "
+                    "ambiente regulatório e os motivadores comerciais."
                 ),
                 "expertise": ["commercial_context", "industry_analysis", "regulatory_env"],
             },
         ],
         "manager": {
-            "role": "Foundation Cluster Manager",
+            "key": "foundation-cluster-manager",
+            "role": "Coordenador da Frente de Fundamentos",
             "goal": (
-                "Synthesize Foundation cluster analyses into a coherent cluster "
-                "summary with weighted median score and confidence aggregate."
+                "Consolidar as análises da frente de Fundamentos em uma síntese coerente, "
+                "com pontuação pela mediana ponderada e confiança agregada."
             ),
             "backstory": (
-                "You are the senior partner overseeing the Foundation team. You "
-                "resolve disagreements, weight analyses by confidence, and produce "
-                "a single authoritative cluster position."
+                "Você é o sócio sênior que supervisiona a equipe de Fundamentos. Você "
+                "resolve divergências, pondera as análises pela confiança e produz uma "
+                "posição única e fundamentada da frente."
             ),
         },
     },
 
-    # ── CLUSTER 2: FINANCIAL RISK ─────────────────────────────────
+    # ── FRENTE 2: RISCO FINANCEIRO ────────────────────────────────
     "financial_risk": {
         "id": "financial_risk",
-        "name": "Financial & Economic Risk",
-        "short_name": "Financial Risk",
+        "name": "Risco Financeiro e Econômico",
+        "short_name": "Risco financeiro",
+        "focused_key": "financial-economic-risk-reviewer",
         "passos": "Passos 3–5",
         "icon": "💰",
         "color": "#f59e0b",
         "description": (
-            "Price and payment terms, interest rate compliance, penalty clause "
-            "validation, and overall economic risk assessment."
+            "Preço e condições de pagamento, conformidade das taxas de juros, validação "
+            "da cláusula penal e avaliação geral do risco econômico."
         ),
         "agents": [
             {
-                "role": "Price & Payment Analyst",
+                "key": "price-payment-analyst",
+                "role": "Analista de Preço e Pagamento",
                 "goal": (
-                    "Analyze price, monetary correction index, interest rates, "
-                    "and late payment penalties for legal compliance."
+                    "Analisar preço, índice de correção monetária, taxas de juros e "
+                    "penalidades por atraso quanto à conformidade legal."
                 ),
                 "backstory": (
-                    "You are a financial law expert specializing in Brazilian "
-                    "usury laws. You check every financial term against "
-                    "art. 406 CC, art. 161 CTN, and CDC caps."
+                    "Você é especialista em direito financeiro com foco na legislação "
+                    "brasileira sobre usura. Você confere cada condição financeira à luz do "
+                    "art. 406 do CC, do art. 161 do CTN e dos limites do CDC."
                 ),
                 "expertise": ["price_analysis", "monetary_correction", "interest_rates"],
             },
             {
-                "role": "Penalty Clause Validator",
+                "key": "penalty-clause-validator",
+                "role": "Validador de Cláusula Penal",
                 "goal": (
-                    "Validate penalty clauses against art. 412 CC cap and assess "
-                    "whether penalties are manifestly excessive."
+                    "Validar as cláusulas penais diante do limite do art. 412 do CC e avaliar "
+                    "se as penalidades são manifestamente excessivas."
                 ),
                 "backstory": (
-                    "You specialize in penalty clause analysis under Brazilian law. "
-                    "You apply art. 412 CC (penalty cannot exceed principal obligation) "
-                    "and art. 413 CC (equitable reduction) rigorously."
+                    "Você é especialista em cláusula penal no direito brasileiro. Você aplica "
+                    "com rigor o art. 412 do CC (a penalidade não pode exceder a obrigação "
+                    "principal) e o art. 413 do CC (redução equitativa)."
                 ),
                 "expertise": ["penalty_clauses", "art_412_cc", "art_413_cc"],
             },
             {
-                "role": "Guarantee & Security Analyst",
+                "key": "guarantee-security-analyst",
+                "role": "Analista de Garantias",
                 "goal": (
-                    "Evaluate adequacy of real and personal guarantees, check "
-                    "registration requirements, and assess enforceability."
+                    "Avaliar a suficiência das garantias reais e pessoais, verificar as "
+                    "exigências de registro e aferir a exequibilidade."
                 ),
                 "backstory": (
-                    "You are a secured transactions specialist. You analyze "
-                    "fianças, avals, penhores, hipotecas, and anticreses for "
-                    "validity and enforceability."
+                    "Você é especialista em operações garantidas. Você analisa fianças, avais, "
+                    "penhores, hipotecas e anticreses quanto à validade e à exequibilidade."
                 ),
                 "expertise": ["guarantees", "secured_transactions", "registration"],
             },
             {
-                "role": "Economic Exposure Quantifier",
+                "key": "economic-exposure-quantifier",
+                "role": "Quantificador da Exposição Econômica",
                 "goal": (
-                    "Quantify total economic exposure including direct, contingent, "
-                    "and opportunity costs."
+                    "Quantificar a exposição econômica total, incluindo custos diretos, "
+                    "contingentes e de oportunidade."
                 ),
                 "backstory": (
-                    "You are a legal economist who translates legal risks into "
-                    "financial terms. You estimate exposure ranges and identify "
-                    "cost drivers."
+                    "Você é um economista jurídico que traduz riscos jurídicos em termos "
+                    "financeiros. Você estima faixas de exposição e identifica os fatores de custo."
                 ),
                 "expertise": ["exposure_quantification", "cost_analysis", "risk_modeling"],
             },
         ],
         "manager": {
-            "role": "Financial Risk Cluster Manager",
+            "key": "financial-risk-cluster-manager",
+            "role": "Coordenador da Frente de Risco Financeiro",
             "goal": (
-                "Synthesize Financial Risk cluster analyses with weighted median "
-                "scoring and confidence aggregation."
+                "Consolidar as análises da frente de Risco Financeiro com pontuação pela "
+                "mediana ponderada e confiança agregada."
             ),
             "backstory": (
-                "You are the senior partner for financial risk. You reconcile "
-                "differing risk assessments and produce the cluster's authoritative "
-                "financial risk position."
+                "Você é o sócio sênior responsável pelo risco financeiro. Você concilia "
+                "avaliações de risco divergentes e produz a posição fundamentada da frente "
+                "sobre o risco financeiro."
             ),
         },
     },
 
-    # ── CLUSTER 3: MITIGATION & EXIT ──────────────────────────────
+    # ── FRENTE 3: MITIGAÇÃO E SAÍDA ───────────────────────────────
     "mitigation_exit": {
         "id": "mitigation_exit",
-        "name": "Mitigation, Exit & Continuity",
-        "short_name": "Mitigation & Exit",
+        "name": "Mitigação, Saída e Continuidade",
+        "short_name": "Mitigação e saída",
+        "focused_key": "mitigation-exit-continuity-reviewer",
         "passos": "Passos 6–7",
         "icon": "🛡️",
         "color": "#10b981",
         "description": (
-            "Termination rights, hardship clauses, force majeure, dispute "
-            "resolution, and exit strategy assessment."
+            "Direitos de extinção do contrato, cláusulas de onerosidade excessiva, força "
+            "maior, solução de controvérsias e avaliação da estratégia de saída."
         ),
         "agents": [
             {
-                "role": "Termination Rights Analyst",
+                "key": "termination-rights-analyst",
+                "role": "Analista de Extinção Contratual",
                 "goal": (
-                    "Analyze denúncia unilateral, resolução, rescisão, and "
-                    "contractual termination mechanisms."
+                    "Analisar a denúncia unilateral, a resolução, a rescisão e os "
+                    "mecanismos contratuais de extinção."
                 ),
                 "backstory": (
-                    "You are a contract termination specialist. You analyze "
-                    "art. 473 CC (unilateral denunciation), art. 475 CC "
-                    "(resolution for non-performance), and art. 478 CC "
-                    "(hardship/onerousidade excessiva)."
+                    "Você é especialista em extinção de contratos. Você analisa o art. 473 do "
+                    "CC (denúncia unilateral), o art. 475 do CC (resolução por inadimplemento) "
+                    "e o art. 478 do CC (onerosidade excessiva)."
                 ),
                 "expertise": ["termination", "rescisão", "denuncia_unilateral"],
             },
             {
-                "role": "Force Majeure & Hardship Analyst",
+                "key": "force-majeure-hardship-analyst",
+                "role": "Analista de Força Maior e Onerosidade Excessiva",
                 "goal": (
-                    "Evaluate force majeure clauses against art. 393 CC and "
-                    "hardship provisions against arts. 478–480 CC."
+                    "Avaliar as cláusulas de força maior à luz do art. 393 do CC e as "
+                    "disposições sobre onerosidade excessiva à luz dos arts. 478 a 480 do CC."
                 ),
                 "backstory": (
-                    "You specialize in unforeseeability and force majeure under "
-                    "Brazilian law. You check whether clauses properly allocate "
-                    "extraordinary risk."
+                    "Você é especialista em imprevisibilidade e força maior no direito "
+                    "brasileiro. Você verifica se as cláusulas alocam adequadamente os "
+                    "riscos extraordinários."
                 ),
                 "expertise": ["force_majeure", "hardship", "arts_393_478_cc"],
             },
             {
-                "role": "Dispute Resolution Analyst",
+                "key": "dispute-resolution-analyst",
+                "role": "Analista de Solução de Controvérsias",
                 "goal": (
-                    "Analyze dispute resolution clauses, forum selection, "
-                    "arbitration agreements, and mediation provisions."
+                    "Analisar as cláusulas de solução de controvérsias, de eleição de foro, "
+                    "as convenções de arbitragem e as disposições sobre mediação."
                 ),
                 "backstory": (
-                    "You are an arbitration and litigation specialist. You "
-                    "validate arbitration clauses under Lei 9.307/96 and "
-                    "forum selection under CPC art. 63."
+                    "Você é especialista em arbitragem e contencioso. Você valida as cláusulas "
+                    "compromissórias à luz da Lei 9.307/96 e a eleição de foro à luz do "
+                    "art. 63 do CPC."
                 ),
                 "expertise": ["arbitration", "forum_selection", "mediation"],
             },
             {
-                "role": "Exit Strategy Evaluator",
+                "key": "exit-strategy-evaluator",
+                "role": "Avaliador de Estratégia de Saída",
                 "goal": (
-                    "Assess overall exit options, transition risks, and "
-                    "continuity planning for contract termination."
+                    "Avaliar as opções gerais de saída, os riscos de transição e o "
+                    "planejamento de continuidade na extinção do contrato."
                 ),
                 "backstory": (
-                    "You are a commercial strategist with legal expertise. You "
-                    "evaluate practical exit paths and identify transition risks."
+                    "Você é um estrategista comercial com formação jurídica. Você avalia "
+                    "caminhos práticos de saída e identifica os riscos de transição."
                 ),
                 "expertise": ["exit_strategy", "transition_planning", "continuity"],
             },
         ],
         "manager": {
-            "role": "Mitigation & Exit Cluster Manager",
+            "key": "mitigation-exit-cluster-manager",
+            "role": "Coordenador da Frente de Mitigação e Saída",
             "goal": (
-                "Synthesize Mitigation & Exit cluster analyses into a unified "
-                "cluster position."
+                "Consolidar as análises da frente de Mitigação e Saída em uma posição "
+                "unificada da frente."
             ),
             "backstory": (
-                "You are the senior partner for risk mitigation. You ensure "
-                "the cluster's assessment covers all exit scenarios and "
-                "mitigation strategies."
+                "Você é o sócio sênior responsável pela mitigação de riscos. Você garante "
+                "que a avaliação da frente abranja todos os cenários de saída e as "
+                "estratégias de mitigação."
             ),
         },
     },
 
-    # ── CLUSTER 4: COMPLIANCE ─────────────────────────────────────
+    # ── FRENTE 4: CONFORMIDADE ────────────────────────────────────
     "compliance": {
         "id": "compliance",
-        "name": "Regulatory Compliance & Governance",
-        "short_name": "Compliance",
+        "name": "Conformidade Regulatória e Governança",
+        "short_name": "Conformidade",
+        "focused_key": "regulatory-compliance-governance-reviewer",
         "passos": "Passos 8–10",
         "icon": "⚖️",
         "color": "#8b5cf6",
         "description": (
-            "Special obligations, LGPD/data protection, anti-corruption, "
-            "electronic signatures, and general provisions review."
+            "Obrigações especiais, LGPD e proteção de dados, anticorrupção, "
+            "assinaturas eletrônicas e revisão das disposições gerais."
         ),
         "agents": [
             {
-                "role": "LGPD & Data Protection Analyst",
+                "key": "lgpd-data-protection-analyst",
+                "role": "Analista de LGPD e Proteção de Dados",
                 "goal": (
-                    "Verify LGPD compliance, data transfer provisions, and "
-                    "privacy clause adequacy."
+                    "Verificar a conformidade com a LGPD, as disposições sobre transferência "
+                    "de dados e a adequação das cláusulas de privacidade."
                 ),
                 "backstory": (
-                    "You are a data protection specialist under Lei 13.709/2018. "
-                    "You check data processing clauses, international transfer "
-                    "provisions (arts. 33–37), and consent mechanisms."
+                    "Você é especialista em proteção de dados nos termos da Lei 13.709/2018. "
+                    "Você examina as cláusulas de tratamento de dados, as disposições sobre "
+                    "transferência internacional (arts. 33 a 37) e os mecanismos de consentimento."
                 ),
                 "expertise": ["lgpd", "data_protection", "privacy"],
             },
             {
-                "role": "Anti-Corruption Compliance Analyst",
+                "key": "anti-corruption-compliance-analyst",
+                "role": "Analista de Conformidade Anticorrupção",
                 "goal": (
-                    "Check compliance with Lei 12.846/2013 and anti-bribery "
-                    "provisions."
+                    "Verificar a conformidade com a Lei 12.846/2013 e com as disposições "
+                    "contra suborno."
                 ),
                 "backstory": (
-                    "You are a compliance specialist focused on anti-corruption. "
-                    "You verify adherence to Lei 12.846/2013 and flag any "
-                    "provisions that could create corruption exposure."
+                    "Você é especialista em compliance com foco em anticorrupção. Você "
+                    "verifica a aderência à Lei 12.846/2013 e aponta qualquer disposição que "
+                    "possa gerar exposição a atos de corrupção."
                 ),
                 "expertise": ["anti_corruption", "lei_12846", "compliance"],
             },
             {
-                "role": "Electronic Signature Validator",
+                "key": "electronic-signature-validator",
+                "role": "Validador de Assinatura Eletrônica",
                 "goal": (
-                    "Validate electronic signature provisions under Lei 14.063/2020 "
-                    "and MP 2.200-2/2001."
+                    "Validar as disposições sobre assinatura eletrônica à luz da "
+                    "Lei 14.063/2020 e da MP 2.200-2/2001."
                 ),
                 "backstory": (
-                    "You are a digital law specialist. You verify that electronic "
-                    "signature clauses comply with ICP-Brasil standards and "
-                    "Lei 14.063/2020."
+                    "Você é especialista em direito digital. Você verifica se as cláusulas de "
+                    "assinatura eletrônica atendem aos padrões da ICP-Brasil e à Lei 14.063/2020."
                 ),
                 "expertise": ["electronic_signature", "digital_law", "icp_brasil"],
             },
             {
-                "role": "General Provisions Reviewer",
+                "key": "general-provisions-reviewer",
+                "role": "Revisor de Disposições Gerais",
                 "goal": (
-                    "Review boilerplate clauses, assignment provisions, "
-                    "notices, and miscellaneous provisions."
+                    "Revisar as cláusulas padrão, as disposições sobre cessão, as "
+                    "notificações e as disposições diversas."
                 ),
                 "backstory": (
-                    "You are a detail-oriented contract attorney. You review "
-                    "general provisions that others overlook — assignment, "
-                    "notices, entire agreement, severability, and amendments."
+                    "Você é um advogado de contratos atento aos detalhes. Você revisa as "
+                    "disposições gerais que os demais ignoram — cessão, notificações, "
+                    "integralidade do acordo, independência das cláusulas e aditamentos."
                 ),
                 "expertise": ["general_provisions", "boilerplate", "contract_drafting"],
             },
         ],
         "manager": {
-            "role": "Compliance Cluster Manager",
+            "key": "compliance-cluster-manager",
+            "role": "Coordenador da Frente de Conformidade",
             "goal": (
-                "Synthesize Compliance cluster analyses into a unified "
-                "cluster position."
+                "Consolidar as análises da frente de Conformidade em uma posição "
+                "unificada da frente."
             ),
             "backstory": (
-                "You are the senior compliance partner. You ensure all "
-                "regulatory obligations are identified and properly assessed."
+                "Você é o sócio sênior de compliance. Você garante que todas as obrigações "
+                "regulatórias sejam identificadas e adequadamente avaliadas."
             ),
         },
     },
 
-    # ── CLUSTER 5: STRATEGY ───────────────────────────────────────
+    # ── FRENTE 5: ESTRATÉGIA ──────────────────────────────────────
     "strategy": {
         "id": "strategy",
-        "name": "Negotiation Strategy & Adversarial",
-        "short_name": "Strategy",
-        "passos": "Passo 9 + ALL",
+        "name": "Estratégia de Negociação e Revisão Adversarial",
+        "short_name": "Estratégia",
+        "focused_key": "negotiation-strategy-adversarial-reviewer",
+        "passos": "Passo 9 + TODOS",
         "icon": "♟️",
         "color": "#ec4899",
         "description": (
-            "Negotiation leverage, concession strategy, counterparty analysis, "
-            "deal structure optimization, and adversarial review."
+            "Poder de negociação, estratégia de concessões, análise da contraparte, "
+            "otimização da estrutura da operação e revisão adversarial."
         ),
         "agents": [
             {
-                "role": "Negotiation Leverage Assessor",
+                "key": "negotiation-leverage-assessor",
+                "role": "Avaliador de Poder de Negociação",
                 "goal": (
-                    "Evaluate negotiation leverage, BATNA, and strategic "
-                    "positioning for the client."
+                    "Avaliar o poder de negociação, a BATNA e o posicionamento estratégico "
+                    "do cliente."
                 ),
                 "backstory": (
-                    "You are a seasoned negotiator with legal expertise. You "
-                    "assess leverage dynamics, identify BATNA, and recommend "
-                    "negotiation positioning."
+                    "Você é um negociador experiente com formação jurídica. Você avalia a "
+                    "dinâmica de poder, identifica a BATNA e recomenda o posicionamento na "
+                    "negociação."
                 ),
                 "expertise": ["negotiation", "leverage", "batna"],
             },
             {
-                "role": "Concession Boundary Optimizer",
+                "key": "concession-boundary-optimizer",
+                "role": "Otimizador de Limites de Concessão",
                 "goal": (
-                    "Identify optimal concession boundaries and non-negotiable "
-                    "terms."
+                    "Identificar os limites ótimos de concessão e as condições inegociáveis."
                 ),
                 "backstory": (
-                    "You are a deal strategist. You map concession space, "
-                    "identify walk-away points, and optimize trade-offs."
+                    "Você é um estrategista de operações. Você mapeia o espaço de concessões, "
+                    "identifica os pontos de abandono da negociação e otimiza as contrapartidas."
                 ),
                 "expertise": ["concessions", "deal_optimization", "trade_offs"],
             },
             {
-                "role": "Counterparty Intent Analyst",
+                "key": "counterparty-intent-analyst",
+                "role": "Analista de Intenção da Contraparte",
                 "goal": (
-                    "Assess counterparty strategy, likely objections, and "
-                    "hidden agendas from contract language."
+                    "Avaliar a estratégia da contraparte, as objeções prováveis e as "
+                    "intenções não declaradas a partir da redação do contrato."
                 ),
                 "backstory": (
-                    "You are a behavioral analyst with legal training. You "
-                    "read between the lines of contract language to infer "
-                    "counterparty intent and strategy."
+                    "Você é um analista comportamental com formação jurídica. Você lê nas "
+                    "entrelinhas da redação contratual para inferir a intenção e a "
+                    "estratégia da contraparte."
                 ),
                 "expertise": ["counterparty_analysis", "behavioral", "intent"],
             },
             {
-                "role": "Deal Structure Evaluator",
+                "key": "deal-structure-evaluator",
+                "role": "Avaliador da Estrutura da Operação",
                 "goal": (
-                    "Optimize overall deal structure, identify alternative "
-                    "structures, and assess structural risks."
+                    "Otimizar a estrutura geral da operação, identificar estruturas "
+                    "alternativas e avaliar os riscos estruturais."
                 ),
                 "backstory": (
-                    "You are a transactional attorney who designs deal structures. "
-                    "You evaluate whether the current structure optimally serves "
-                    "the client's interests."
+                    "Você é um advogado transacional que desenha estruturas de operações. "
+                    "Você avalia se a estrutura atual atende da melhor forma aos interesses "
+                    "do cliente."
                 ),
                 "expertise": ["deal_structure", "transactional", "optimization"],
             },
         ],
         "manager": {
-            "role": "Strategy Cluster Manager",
+            "key": "strategy-cluster-manager",
+            "role": "Coordenador da Frente de Estratégia",
             "goal": (
-                "Synthesize Strategy cluster analyses into a unified "
-                "strategic position."
+                "Consolidar as análises da frente de Estratégia em uma posição "
+                "estratégica unificada."
             ),
             "backstory": (
-                "You are the senior strategy partner. You ensure the cluster's "
-                "assessment provides actionable strategic guidance."
+                "Você é o sócio sênior de estratégia. Você garante que a avaliação da frente "
+                "ofereça orientação estratégica acionável."
             ),
         },
     },
 }
 
 
+def focused_reviewer_role(cluster: Dict) -> str:
+    """Nome do revisor único de uma frente no modo de rascunho focado.
+
+    Fonte única de verdade: o motor, o registro de identidades e a política de
+    capacidades devem usar esta função, para que o nome nunca divirja.
+    """
+    return f"{cluster['name']} — revisor focado"
+
+
 # ═════════════════════════════════════════════════════════════════════
-#  DEVIL'S ADVOCATE — Single adversarial agent with full context
+#  ADVOGADO DO DIABO — agente adversarial único com contexto completo
 # ═════════════════════════════════════════════════════════════════════
 
 DEVILS_ADVOCATE: Dict = {
     "id": "devils_advocate",
-    "name": "Analista Adversarial (Devil's Advocate)",
+    "key": "analista-adversarial-advogado-do-diabo-auditor-de-racioc-nio-jur-dico",
+    "name": "Analista Adversarial (Advogado do Diabo)",
     "icon": "👿",
     "color": "#ef4444",
     "role": "Analista Adversarial — Advogado do Diabo & Auditor de Raciocínio Jurídico",
     "goal": (
-        "Receber todos os outputs dos 5 clusters anteriores e submetê-los a uma "
+        "Receber todos os resultados das 5 frentes anteriores e submetê-los a uma "
         "análise crítica sistemática. Identificar lacunas de raciocínio, premissas "
         "não declaradas, vieses cognitivos, pontos cegos regulatórios e fragilidades "
         "argumentativas específicas ao contexto jurídico brasileiro. Calcular o "
-        "Score do Advogado do Diabo (SAD) de 1 a 5 e propor follow-up actions."
+        "Score do Advogado do Diabo (SAD) de 1 a 5 e propor providências de acompanhamento."
     ),
     "backstory": (
-        "Você é o Analista Adversarial do sistema Gilberto — uma challenger function "
-        "independente que reporta diretamente ao comitê de risco. No ambiente jurídico "
+        "Você é o Analista Adversarial do sistema Gilberto — uma função de contestação "
+        "independente que se reporta diretamente ao comitê de risco. No ambiente jurídico "
         "brasileiro, com mais de 6 milhões de normas editadas desde 1988, mais de "
         "80 milhões de processos em tramitação, múltiplos reguladores com competências "
         "sobrepostas (CVM, BACEN, ANPD, ANS, ANVISA, CADE, IBAMA, ANEEL, ANATEL) e "
         "jurisprudência volátil, seu papel é especialmente crítico. "
-        "Você NÃO concorda com a análise — você a ataca. Recebe TODOS os outputs dos "
-        "clusters como contexto e sua missão é encontrar o que eles perderam, o que "
+        "Você NÃO concorda com a análise — você a ataca. Recebe TODOS os resultados das "
+        "frentes como contexto e sua missão é encontrar o que elas perderam, o que "
         "assumiram sem evidência, onde o raciocínio é mais fraco, e se todas as fontes "
         "normativas relevantes foram consultadas (DOU, Diários Oficiais estaduais/municipais). "
         "Você verifica se a análise considerou a possibilidade de atuação do MPF, TCU, "
-        "CGU ou CADE sobre a matéria. Testa cenários de worst-case e black swan específicos "
-        "ao mercado brasileiro: mudança de regime regulatório, superação de súmula, "
-        "alteração legislativa súbita. É construtivo mas implacável."
+        "CGU ou CADE sobre a matéria. Testa cenários de pior caso e de eventos extremos "
+        "específicos ao mercado brasileiro: mudança de regime regulatório, superação de "
+        "súmula, alteração legislativa súbita. É construtivo, mas implacável."
     ),
     "expertise": [
         "gap_analysis", "assumption_challenging", "adversarial_review",
@@ -482,29 +520,30 @@ DEVILS_ADVOCATE: Dict = {
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  MASTER MANAGER
+#  COORDENADOR-GERAL
 # ═════════════════════════════════════════════════════════════════════
 
 MASTER_MANAGER: Dict = {
-    "role": "Master Manager & Final Synthesis Orchestrator",
+    "key": "master-manager-final-synthesis-orchestrator",
+    "role": "Coordenador-Geral e Orquestrador da Síntese Final",
     "goal": (
-        "Apply the Passo 11 weighted aggregation formula across all cluster "
-        "summaries, incorporate Devil's Advocate findings, determine final "
-        "risk classification, and route to appropriate human feedback gates."
+        "Aplicar a fórmula de agregação ponderada do Passo 11 a todas as sínteses "
+        "das frentes, incorporar as conclusões do advogado do diabo, determinar a "
+        "classificação final de risco e encaminhar às etapas de revisão humana adequadas."
     ),
     "backstory": (
-        "You are the senior legal partner overseeing the entire analysis. "
-        "You never see raw agent outputs — only cluster summaries and the "
-        "Devil's Advocate report. You apply the Passo 11 formula, resolve "
-        "cross-cluster tensions, and produce the final synthesis. You are "
-        "responsible for triggering the correct human feedback gates based "
-        "on confidence thresholds and Devil's Advocate severity scores."
+        "Você é o sócio sênior que supervisiona toda a análise. Você nunca vê os "
+        "resultados brutos dos agentes — apenas as sínteses das frentes e o relatório "
+        "do advogado do diabo. Você aplica a fórmula do Passo 11, resolve as tensões "
+        "entre frentes e produz a síntese final. Você é responsável por acionar as "
+        "etapas corretas de revisão humana, com base nos limites de confiança e nas "
+        "pontuações de gravidade do advogado do diabo."
     ),
 }
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  FEEDBACK ADVOCATE — Injected when user submits feedback
+#  DEFENSOR DOS COMENTÁRIOS — incluído quando o usuário envia comentários
 # ═════════════════════════════════════════════════════════════════════
 
 def get_feedback_agent_config(
@@ -512,19 +551,19 @@ def get_feedback_agent_config(
     target_cluster_id: str,
     round_num: int,
 ) -> Dict:
-    """Create a Feedback Advocate agent for a specific cluster."""
+    """Cria um agente defensor dos comentários para uma frente específica."""
     cluster_name = CLUSTERS.get(target_cluster_id, {}).get("name", target_cluster_id)
     return {
-        "role": f"User Feedback Advocate (Round {round_num})",
+        "key": f"user-feedback-advocate-round-{round_num}",
+        "role": f"Defensor dos Comentários do Usuário (rodada {round_num})",
         "goal": (
-            f"Ensure the user's feedback is properly incorporated into the "
-            f"{cluster_name} cluster's analysis."
+            f"Garantir que os comentários do usuário sejam adequadamente incorporados "
+            f"à análise da frente {cluster_name}."
         ),
         "backstory": (
-            f"You are an advocate for the user's perspective. The user has "
-            f"provided feedback that must be addressed by the {cluster_name} "
-            f"cluster. Your job is to ensure the cluster's re-analysis "
-            f"properly incorporates: {feedback[:200]}"
+            f"Você defende a perspectiva do usuário. O usuário enviou comentários que "
+            f"devem ser tratados pela frente {cluster_name}. Sua tarefa é garantir que "
+            f"a reanálise da frente incorpore adequadamente: {feedback[:200]}"
         ),
         "is_feedback_agent": True,
         "feedback_text": feedback,
@@ -534,7 +573,7 @@ def get_feedback_agent_config(
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  PROMPT BUILDERS
+#  CONSTRUTORES DE PROMPTS
 # ═════════════════════════════════════════════════════════════════════
 
 def get_cluster_analysis_prompt(
@@ -544,66 +583,67 @@ def get_cluster_analysis_prompt(
     prior_cluster_summaries: Dict[str, str],
     previous_analyses: Optional[List[Dict]] = None,
 ) -> str:
-    """Build the analysis prompt for a cluster agent."""
+    """Monta o prompt de análise de um agente de frente."""
 
     prior_context = ""
     if prior_cluster_summaries:
-        prior_context = "\n\nPRIOR CLUSTER SUMMARIES (for context):\n"
+        prior_context = "\n\nSÍNTESES ANTERIORES DAS FRENTES (para contexto):\n"
         for cid, summary in prior_cluster_summaries.items():
             cluster_name = CLUSTERS.get(cid, {}).get("name", cid)
             prior_context += f"\n--- {cluster_name} ---\n{summary[:500]}\n"
 
     prev_context = ""
     if previous_analyses:
-        prev_context = "\n\nYOUR PREVIOUS ANALYSES (this is a refinement round):\n"
+        prev_context = "\n\nSUAS ANÁLISES ANTERIORES (esta é uma rodada de refinamento):\n"
         for pa in previous_analyses[:2]:
-            prev_context += f"\n- {pa.get('agent', 'unknown')}: {str(pa.get('parsed', ''))[:300]}\n"
+            prev_context += f"\n- {pa.get('agent', 'desconhecido')}: {str(pa.get('parsed', ''))[:300]}\n"
 
     is_feedback = agent_cfg.get("is_feedback_agent", False)
     feedback_section = ""
     if is_feedback:
         feedback_section = f"""
-USER FEEDBACK TO INCORPORATE:
+COMENTÁRIOS DO USUÁRIO A INCORPORAR:
 "{agent_cfg.get('feedback_text', '')}"
 
-You MUST address this feedback in your analysis. Explicitly reference how your
-findings relate to the user's concerns."""
+Você DEVE tratar esses comentários na sua análise. Indique expressamente como suas
+conclusões se relacionam com as preocupações do usuário."""
 
-    return f"""You are the {agent_cfg['role']} in the Gilberto Legal Analysis System.
-Jurisdiction scope is strictly Brazilian law (Brasil/BR). Never claim to apply Swiss, US, EU, Portuguese, or any other foreign law. When a document has foreign-law or conflict-of-laws issues, explicitly flag OUT_OF_SCOPE and refer the issue to a qualified practitioner; do not invent a foreign legal conclusion.
-Brazilian legal claims require source and as-of-date verification; article numbers supplied by the document are UNTRUSTED until independently checked.
+    return f"""Você é o {agent_cfg['role']} no Sistema Gilberto de Análise Jurídica.
+O escopo de jurisdição é estritamente o direito brasileiro (Brasil/BR). Nunca afirme aplicar direito suíço, norte-americano, da União Europeia, português ou de qualquer outro país. Quando o documento envolver direito estrangeiro ou conflito de leis, sinalize expressamente OUT_OF_SCOPE e encaminhe a questão a um profissional habilitado; não invente uma conclusão sobre direito estrangeiro.
+Afirmações sobre direito brasileiro exigem verificação da fonte e da data de vigência; números de artigos fornecidos pelo documento NÃO SÃO CONFIÁVEIS até serem verificados de forma independente.
 
-YOUR EXPERTISE: {', '.join(agent_cfg.get('expertise', []))}
+SUA ESPECIALIDADE: {', '.join(agent_cfg.get('expertise', []))}
 
-DOCUMENT TO ANALYZE:
+DOCUMENTO A ANALISAR:
 {"=" * 60}
 {document_text}
 {"=" * 60}
 {prior_context}{prev_context}{feedback_section}
 
-INSTRUCTIONS:
-1. Analyze the document through the lens of your specific expertise ONLY.
-2. Cite specific legal provisions (article, law, decree) for every finding.
-3. Quote exact contract text as evidence for every flag.
-4. Assign a numerical risk score (0-10) where 0=no risk, 10=critical risk.
-5. Rate your confidence in this assessment (1-5, where 5=very high confidence).
-6. Recommend a risk classification: Crítico (≥8), Relevante (5-7.9), Aceitável (<5).
+INSTRUÇÕES:
+1. Analise o documento EXCLUSIVAMENTE sob a ótica da sua especialidade.
+2. Cite os dispositivos legais específicos (artigo, lei, decreto) de cada conclusão.
+3. Transcreva o texto exato do contrato como evidência de cada apontamento.
+4. Atribua uma pontuação numérica de risco (0-10), em que 0 = sem risco e 10 = risco crítico.
+5. Indique sua confiança nesta avaliação (1-5, em que 5 = confiança muito alta).
+6. Recomende uma classificação de risco: Crítico (≥8), Relevante (5-7,9), Aceitável (<5).
+7. Redija todos os textos da resposta em português do Brasil.
 
-OUTPUT FORMAT (valid JSON only, no markdown):
+FORMATO DE SAÍDA (apenas JSON válido, sem markdown; mantenha exatamente os nomes dos campos e os valores enumerados):
 {{
   "agent": "{agent_cfg['role']}",
-  "cluster": "<cluster_id>",
+  "cluster": "<id da frente>",
   "score": <0-10>,
-  "reasoning": "<detailed legal reasoning with citations>",
+  "reasoning": "<fundamentação jurídica detalhada, com citações>",
   "confidence_level": <1-5>,
-  "supporting_evidence": ["<exact contract clause quotes>", "<legal provisions>"],
+  "supporting_evidence": ["<transcrições exatas de cláusulas do contrato>", "<dispositivos legais>"],
   "recommended_classification": "Crítico|Relevante|Aceitável",
   "key_findings": [
     {{
-      "item": "<what was analyzed>",
+      "item": "<o que foi analisado>",
       "status": "OK|WARNING|VIOLATION|INFO",
-      "evidence": "<contract text>",
-      "legal_basis": "<article/law>",
+      "evidence": "<texto do contrato>",
+      "legal_basis": "<artigo/lei>",
       "confidence": "high|medium|low"
     }}
   ],
@@ -611,11 +651,11 @@ OUTPUT FORMAT (valid JSON only, no markdown):
     {{
       "type": "LEGAL|FINANCIAL|OPERATIONAL|COMPLIANCE|REPUTATIONAL",
       "severity": "LOW|MEDIUM|HIGH|CRITICAL",
-      "description": "<risk description>",
-      "mitigation": "<suggested mitigation>"
+      "description": "<descrição do risco>",
+      "mitigation": "<mitigação sugerida>"
     }}
   ],
-  "recommendations": ["<actionable recommendation>"]
+  "recommendations": ["<recomendação acionável>"]
 }}"""
 
 
@@ -624,42 +664,42 @@ def get_intracluster_vote_prompt(
     peer_analyses: List[Dict],
     cluster_name: str,
 ) -> str:
-    """Build the intra-cluster voting prompt."""
+    """Monta o prompt de votação dentro da frente."""
 
     peers_text = ""
     for pa in peer_analyses:
-        peers_text += f"\n--- {pa.get('agent', 'Peer')} ---\n"
+        peers_text += f"\n--- {pa.get('agent', 'Par')} ---\n"
         peers_text += f"{str(pa.get('content', ''))[:400]}\n"
 
-    return f"""You are participating in intra-cluster voting for the {cluster_name} cluster.
+    return f"""Você participa da votação interna da frente {cluster_name}.
 
-YOUR ANALYSIS:
+SUA ANÁLISE:
 {my_analysis[:500]}
 
-PEER ANALYSES:
+ANÁLISES DOS PARES:
 {peers_text}
 
-INSTRUCTIONS:
-1. Review each peer's analysis for quality, accuracy, and completeness.
-2. Score each peer's analysis (0-10) based on:
-   - Legal accuracy of citations
-   - Quality of evidence
-   - Completeness of analysis
-   - Actionability of recommendations
-3. Rate your confidence in each score (1-5).
-4. Provide brief rationale for each score.
+INSTRUÇÕES:
+1. Revise a análise de cada par quanto a qualidade, precisão e completude.
+2. Atribua a cada análise uma pontuação (0-10) com base em:
+   - precisão jurídica das citações;
+   - qualidade das evidências;
+   - completude da análise;
+   - aplicabilidade prática das recomendações.
+3. Indique sua confiança em cada pontuação (1-5).
+4. Apresente uma breve justificativa para cada pontuação, em português do Brasil.
 
-OUTPUT FORMAT (valid JSON only):
+FORMATO DE SAÍDA (apenas JSON válido; mantenha exatamente os nomes dos campos):
 {{
   "scores": {{
-    "<peer_agent_name>": <0-10>,
+    "<nome do agente avaliado>": <0-10>,
     ...
   }},
   "confidence_scores": {{
-    "<peer_agent_name>": <1-5>,
+    "<nome do agente avaliado>": <1-5>,
     ...
   }},
-  "rationale": "<overall voting rationale>"
+  "rationale": "<justificativa geral da votação>"
 }}"""
 
 
@@ -670,54 +710,55 @@ def get_cluster_manager_prompt(
     round_num: int,
     prior_cluster_summaries: Dict[str, str],
 ) -> str:
-    """Build the cluster manager synthesis prompt."""
+    """Monta o prompt de síntese do coordenador da frente."""
 
     analyses_text = ""
     for a in analyses:
-        analyses_text += f"\n--- {a.get('agent', 'Agent')} ---\n"
+        analyses_text += f"\n--- {a.get('agent', 'Agente')} ---\n"
         analyses_text += f"{str(a.get('content', ''))[:600]}\n"
 
     votes_text = ""
     for voter, vote_data in votes.items():
         votes_text += f"\n{voter}: {str(vote_data.get('parsed', ''))[:300]}\n"
 
-    return f"""You are the {cluster['manager']['role']} for the {cluster['name']} cluster.
+    return f"""Você é o {cluster['manager']['role']}, responsável pela frente {cluster['name']}.
 
-AGENT ANALYSES:
+ANÁLISES DOS AGENTES:
 {analyses_text}
 
-INTRA-CLUSTER VOTES:
+VOTOS INTERNOS DA FRENTE:
 {votes_text}
 
-INSTRUCTIONS:
-1. Synthesize all agent analyses into a single cluster position.
-2. Apply weighted median: weight each agent's score by their confidence_level.
-   Sort by confidence descending, take the median score.
-3. Compute confidence_aggregate = average of all confidence_levels.
-4. Determine cluster classification based on aggregated score.
-5. Note any significant dissent or disagreement among agents.
-6. List the top 3-5 key findings from the cluster.
-7. Consolidate all risk flags.
+INSTRUÇÕES:
+1. Consolide todas as análises dos agentes em uma única posição da frente.
+2. Aplique a mediana ponderada: pondere a pontuação de cada agente pelo seu confidence_level.
+   Ordene por confiança decrescente e tome a pontuação mediana.
+3. Calcule confidence_aggregate = média de todos os confidence_level.
+4. Determine a classificação da frente com base na pontuação agregada.
+5. Registre qualquer divergência ou discordância relevante entre os agentes.
+6. Liste as 3 a 5 principais conclusões da frente.
+7. Consolide todos os apontamentos de risco.
+8. Redija todos os textos da resposta em português do Brasil.
 
-OUTPUT FORMAT (valid JSON only):
+FORMATO DE SAÍDA (apenas JSON válido; mantenha exatamente os nomes dos campos e os valores enumerados):
 {{
   "cluster": "{cluster['id']}",
   "cluster_name": "{cluster['name']}",
-  "aggregated_score": <weighted median 0-10>,
-  "confidence_aggregate": <average 1-5, one decimal>,
+  "aggregated_score": <mediana ponderada 0-10>,
+  "confidence_aggregate": <média 1-5, uma casa decimal>,
   "classification": "Crítico|Relevante|Aceitável",
-  "summary": "<2-3 paragraph cluster synthesis>",
-  "key_findings": ["<finding 1>", "<finding 2>", "<finding 3>"],
+  "summary": "<síntese da frente em 2-3 parágrafos>",
+  "key_findings": ["<conclusão 1>", "<conclusão 2>", "<conclusão 3>"],
   "risk_flags": [
     {{
       "type": "LEGAL|FINANCIAL|OPERATIONAL|COMPLIANCE|REPUTATIONAL",
       "severity": "LOW|MEDIUM|HIGH|CRITICAL",
-      "description": "<risk>",
-      "mitigation": "<mitigation>"
+      "description": "<risco>",
+      "mitigation": "<mitigação>"
     }}
   ],
   "agent_count": {len(analyses)},
-  "dissent_notes": "<note any significant disagreement, or null>"
+  "dissent_notes": "<registre qualquer divergência relevante, ou null>"
 }}"""
 
 
@@ -726,20 +767,20 @@ def get_devils_advocate_prompt(
     document_text: str,
     round_num: int,
 ) -> str:
-    """Build the Devil's Advocate prompt — receives ALL cluster outputs with Brazilian context."""
+    """Monta o prompt do advogado do diabo — recebe TODOS os resultados das frentes."""
 
     summaries_text = ""
     for cid, summary in cluster_summaries.items():
         cluster_name = CLUSTERS.get(cid, {}).get("name", cid)
         summaries_text += f"\n{'='*50}\n"
-        summaries_text += f"CLUSTER: {cluster_name}\n"
+        summaries_text += f"FRENTE: {cluster_name}\n"
         summaries_text += f"{'='*50}\n"
         summaries_text += f"{str(summary.get('raw', ''))[:800]}\n"
 
     return f"""Você é o Analista Adversarial (Advogado do Diabo) do Sistema Gilberto de Análise Jurídica.
 
-Sua missão é ATACAR a análise, não concordar com ela. Você recebe TODOS os
-summaries dos clusters e seu trabalho é encontrar o que eles perderam, especialmente
+Sua missão é ATACAR a análise, não concordar com ela. Você recebe TODAS as
+sínteses das frentes e seu trabalho é encontrar o que elas perderam, especialmente
 no complexo ambiente jurídico-regulatório brasileiro.
 
 CONTEXTO BRASILEIRO CRÍTICO:
@@ -748,51 +789,53 @@ CONTEXTO BRASILEIRO CRÍTICO:
 - Múltiplos reguladores com competências sobrepostas: CVM, BACEN, ANPD, ANS, ANVISA, CADE, IBAMA, ANEEL, ANATEL
 - Jurisprudência volátil: súmulas e temas repetitivos podem ser superados a qualquer momento
 - Ativismo judicial: decisões frequentemente inovam em matéria de direito
-- Negociações com Poder Público regidas pela Lei 14.133/2021
+- Contratações com o Poder Público regidas pela Lei 14.133/2021
 - Operações societárias sob a Lei 6.404/1976
 
-DOCUMENTO ORIGINAL (excerpt):
+DOCUMENTO ORIGINAL (trecho):
 {document_text[:2000]}
 
-TODOS OS CLUSTER SUMMARIES:
+TODAS AS SÍNTESES DAS FRENTES:
 {summaries_text}
 
 INSTRUÇÕES:
-1. Para cada cluster summary, identifique:
+1. Para cada síntese de frente, identifique:
    - Lacunas de raciocínio (o que NÃO foi analisado mas deveria ter sido)
    - Premissas não declaradas (o que os agentes assumiram sem evidência?)
-   - Vieses cognitivos (otimismo, viés de confirmação, anchoring)
+   - Vieses cognitivos (otimismo, viés de confirmação, ancoragem)
    - Pontos fracos (onde o raciocínio é mais fraco?)
-   - Dimensões não consideradas (qual ângulo legal/regulatório/comercial foi perdido?)
-   - Conflitos normativos entre esferas (federal vs estadual vs municipal)
+   - Dimensões não consideradas (qual ângulo jurídico, regulatório ou comercial foi perdido?)
+   - Conflitos normativos entre esferas (federal vs. estadual vs. municipal)
 
-2. Análise cross-cluster:
-   - Há contradições entre os summaries dos clusters?
-   - Algum cluster se baseou na premissa de outro sem verificação?
-   - Há um ponto cego sistêmico em TODOS os clusters?
+2. Análise entre frentes:
+   - Há contradições entre as sínteses das frentes?
+   - Alguma frente se baseou na premissa de outra sem verificação?
+   - Há um ponto cego sistêmico em TODAS as frentes?
 
 3. Verificação específica do contexto brasileiro:
    - Todas as fontes normativas relevantes foram consultadas? (DOU, Diários Oficiais estaduais/municipais, normas de agências)
    - A análise considerou a possibilidade de atuação do MPF, TCU, CGU ou CADE sobre a matéria?
-   - Os precedentes citados foram recentemente superados? (stress-test de súmulas)
-   - Foram considerados cenários de worst-case e black swan específicos ao Brasil? (mudança de regime regulatório, superação de súmula, alteração legislativa súbita)
+   - Os precedentes citados foram recentemente superados? (teste de resistência de súmulas)
+   - Foram considerados cenários de pior caso e de eventos extremos específicos ao Brasil? (mudança de regime regulatório, superação de súmula, alteração legislativa súbita)
    - A análise de compliance mapeou apenas normas federais, ignorando legislação estadual/municipal relevante?
 
 4. Cálculo do Score do Advogado do Diabo (SAD):
-   - sad_score: 1-5 (1=sem lacunas, 5=lacunas críticas exigindo reanálise completa)
-   - gap_severity_score: 0-10 (equivalente numérico para cálculo de gates)
+   - sad_score: 1-5 (1 = sem lacunas, 5 = lacunas críticas exigindo reanálise completa)
+   - gap_severity_score: 0-10 (equivalente numérico para o cálculo das etapas de revisão)
 
-5. Perguntas-chave que nenhum cluster formulou ("O que estamos deixando de perguntar?")
+5. Perguntas-chave que nenhuma frente formulou ("O que estamos deixando de perguntar?")
 
-6. Propor follow-up actions: quais análises precisam ser refeitas, quais fontes precisam ser consultadas, quais cenários precisam ser modelados
+6. Propor providências de acompanhamento: quais análises precisam ser refeitas, quais fontes precisam ser consultadas, quais cenários precisam ser modelados.
 
-FORMATO DE SAÍDA (JSON válido apenas):
+7. Redija todos os textos da resposta em português do Brasil.
+
+FORMATO DE SAÍDA (apenas JSON válido; mantenha exatamente os nomes dos campos e os valores enumerados):
 {{
   "sad_score": <1-5>,
   "gap_severity_score": <0-10>,
   "identified_gaps": [
     {{
-      "cluster": "<cluster_id ou 'cross_cluster'>",
+      "cluster": "<id da frente ou 'cross_cluster'>",
       "gap_type": "reasoning_gap|unstated_assumption|cognitive_bias|weak_point|unconsidered_dimension|regulatory_conflict|precedent_risk|mpf_tcu_cgu_cade_risk",
       "description": "<o que foi perdido>",
       "severity": "LOW|MEDIUM|HIGH|CRITICAL",
@@ -807,7 +850,7 @@ FORMATO DE SAÍDA (JSON válido apenas):
   "follow_up_actions": [
     {{
       "action": "<ação>",
-      "responsible_cluster": "<cluster responsável>",
+      "responsible_cluster": "<frente responsável>",
       "priority": "HIGH|MEDIUM|LOW"
     }}
   ],
@@ -820,72 +863,73 @@ def get_master_manager_prompt(
     devil_advocate_output: Optional[Dict],
     round_num: int,
 ) -> str:
-    """Build the Master Manager final synthesis prompt."""
+    """Monta o prompt de síntese final do coordenador-geral."""
 
     summaries_text = ""
     for cid, summary in cluster_summaries.items():
         cluster_name = CLUSTERS.get(cid, {}).get("name", cid)
         parsed = summary.get("parsed", {})
-        score = parsed.get("aggregated_score", "N/A")
-        conf = parsed.get("confidence_aggregate", "N/A")
-        classification = parsed.get("classification", "N/A")
+        score = parsed.get("aggregated_score", "N/D")
+        conf = parsed.get("confidence_aggregate", "N/D")
+        classification = parsed.get("classification", "N/D")
         summaries_text += f"\n--- {cluster_name} ---\n"
-        summaries_text += f"Score: {score} | Confidence: {conf} | Classification: {classification}\n"
-        summaries_text += f"Summary: {str(parsed.get('summary', ''))[:400]}\n"
+        summaries_text += f"Pontuação: {score} | Confiança: {conf} | Classificação: {classification}\n"
+        summaries_text += f"Síntese: {str(parsed.get('summary', ''))[:400]}\n"
 
     da_text = ""
     if devil_advocate_output:
         da_text = f"""
-DEVIL'S ADVOCATE FINDINGS:
+CONCLUSÕES DO ADVOGADO DO DIABO:
 {str(devil_advocate_output.get('raw', ''))[:1000]}
 
-Gap Severity Score: {devil_advocate_output.get('parsed', {}).get('gap_severity_score', 'N/A')}
+Gravidade das lacunas (gap_severity_score): {devil_advocate_output.get('parsed', {}).get('gap_severity_score', 'N/D')}
 """
 
-    return f"""You are the Master Manager of the Gilberto Legal Analysis System.
+    return f"""Você é o Coordenador-Geral do Sistema Gilberto de Análise Jurídica.
 
-CLUSTER SUMMARIES:
+SÍNTESES DAS FRENTES:
 {summaries_text}
 {da_text}
 
-PASSO 11 FORMULA:
-Apply the weighted aggregation across all cluster summaries:
-1. Collect (aggregated_score, confidence_aggregate) from each cluster
-2. Weight each score by its confidence_aggregate
-3. Compute weighted median as the final_score
-4. confidence = average of all confidence_aggregate values
-5. Determine final_classification from final_score
+FÓRMULA DO PASSO 11:
+Aplique a agregação ponderada a todas as sínteses das frentes:
+1. Colete (aggregated_score, confidence_aggregate) de cada frente.
+2. Pondere cada pontuação pelo respectivo confidence_aggregate.
+3. Calcule a mediana ponderada como final_score.
+4. confidence = média de todos os valores de confidence_aggregate.
+5. Determine final_classification a partir de final_score.
 
-GATE ROUTING (determine which human feedback gates to trigger):
-- Gate 1: Trigger if ANY cluster has confidence_aggregate < 3.0
-- Gate 2: Trigger if Devil's Advocate gap_severity_score > 6.0
-- Gate 3: ALWAYS trigger if final_classification = "Crítico"
+ETAPAS DE REVISÃO HUMANA (determine quais devem ser acionadas):
+- Etapa 1: acionar se QUALQUER frente tiver confidence_aggregate < 3,0
+- Etapa 2: acionar se o gap_severity_score do advogado do diabo for > 6,0
+- Etapa 3: SEMPRE acionar se final_classification = "Crítico"
 
-INSTRUCTIONS:
-1. Apply Passo 11 formula to compute final_score and confidence.
+INSTRUÇÕES:
+1. Aplique a fórmula do Passo 11 para calcular final_score e confidence.
 2. Determine final_classification.
-3. Identify which gates to trigger and why.
-4. Produce executive summary (2-3 sentences for C-level).
-5. List critical actions (top 3-5 things the client must do).
-6. Generate approval checklist.
+3. Identifique quais etapas de revisão devem ser acionadas e por quê.
+4. Produza um resumo executivo (2-3 frases para a alta administração).
+5. Liste as providências críticas (as 3 a 5 principais medidas que o cliente deve adotar).
+6. Gere uma lista de verificação para aprovação.
+7. Redija todos os textos da resposta em português do Brasil.
 
-OUTPUT FORMAT (valid JSON only):
+FORMATO DE SAÍDA (apenas JSON válido; mantenha exatamente os nomes dos campos e os valores enumerados):
 {{
-  "final_score": <weighted median 0-10>,
+  "final_score": <mediana ponderada 0-10>,
   "final_classification": "Crítico|Relevante|Aceitável",
-  "confidence": <average 1-5, one decimal>,
-  "reasoning": "<comprehensive synthesis reasoning>",
-  "executive_summary": "<2-3 sentence executive summary>",
-  "critical_actions": ["<action 1>", "<action 2>", "<action 3>"],
-  "approval_checklist": ["<checklist item 1>", "<checklist item 2>"],
+  "confidence": <média 1-5, uma casa decimal>,
+  "reasoning": "<fundamentação abrangente da síntese>",
+  "executive_summary": "<resumo executivo em 2-3 frases>",
+  "critical_actions": ["<providência 1>", "<providência 2>", "<providência 3>"],
+  "approval_checklist": ["<item de verificação 1>", "<item de verificação 2>"],
   "gate_triggers": [
     {{
       "gate_number": <1|2|3>,
       "trigger_type": "low_confidence|devil_advocate|critico_classification",
-      "trigger_value": <float>,
-      "threshold": <float>,
-      "affected_cluster": "<cluster_id or null>",
-      "description": "<why this gate was triggered>"
+      "trigger_value": <número>,
+      "threshold": <número>,
+      "affected_cluster": "<id da frente ou null>",
+      "description": "<por que esta etapa foi acionada>"
     }}
   ]
 }}"""
@@ -895,31 +939,32 @@ def get_feedback_routing_prompt(
     feedback: str,
     cluster_summaries: Dict[str, Dict],
 ) -> str:
-    """Build the feedback routing prompt."""
+    """Monta o prompt de encaminhamento dos comentários do usuário."""
 
     clusters_text = ""
     for cid, summary in cluster_summaries.items():
         cluster_name = CLUSTERS.get(cid, {}).get("name", cid)
         clusters_text += f"\n- {cid} ({cluster_name}): {str(summary.get('parsed', {}).get('summary', ''))[:200]}\n"
 
-    return f"""You are the Master Manager routing user feedback to the correct cluster.
+    return f"""Você é o Coordenador-Geral e deve encaminhar os comentários do usuário à frente correta.
 
-USER FEEDBACK:
+COMENTÁRIOS DO USUÁRIO:
 "{feedback}"
 
-AVAILABLE CLUSTERS:
+FRENTES DISPONÍVEIS:
 {clusters_text}
 
-INSTRUCTIONS:
-1. Analyze the user's feedback to determine which cluster should address it.
-2. Consider: does the feedback relate to contract fundamentals (foundation),
-   financial terms (financial_risk), termination/exit (mitigation_exit),
-   regulatory compliance (compliance), or negotiation strategy (strategy)?
-3. If the feedback is cross-cutting, route to "strategy" (adversarial cluster).
+INSTRUÇÕES:
+1. Analise os comentários do usuário para determinar qual frente deve tratá-los.
+2. Considere: os comentários se referem aos fundamentos do contrato (foundation),
+   às condições financeiras (financial_risk), à extinção ou saída (mitigation_exit),
+   à conformidade regulatória (compliance) ou à estratégia de negociação (strategy)?
+3. Se os comentários forem transversais, encaminhe a "strategy" (frente adversarial).
+4. Redija a justificativa em português do Brasil.
 
-OUTPUT FORMAT (valid JSON only):
+FORMATO DE SAÍDA (apenas JSON válido; mantenha exatamente os nomes dos campos e use um id de frente listado acima):
 {{
-  "target_cluster": "<cluster_id>",
-  "rationale": "<why this cluster was selected>",
+  "target_cluster": "<id da frente>",
+  "rationale": "<por que esta frente foi escolhida>",
   "confidence": <1-5>
 }}"""

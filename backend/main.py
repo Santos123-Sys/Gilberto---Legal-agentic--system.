@@ -39,7 +39,7 @@ from financial.planning import estimate_plan
 from operational.metrics import summarize_sessions
 import session_store
 import run_control
-from agents.workspace_registry import roster_for_engine, coordination_roster
+from agents.workspace_registry import roster_for_engine, coordination_roster, match_agent
 from workspace_events import project_event, state_snapshot, stream_end
 from observability import from_environment
 from provider import ProviderError, backup_configured
@@ -419,7 +419,7 @@ def _append_event(session, event):
     role = event.get("agent") or event.get("voter")
     if cid in CLUSTERS and role:
         cluster = roster_for_engine(session["engine"], [cid])[0]
-        match = next((a for a in cluster["agents"] + [cluster["manager"]] if a["role"] == role), None)
+        match = match_agent(cluster, role)
         if match:
             event["agent_id"] = match["id"]
     event.setdefault("run_id", session["id"])

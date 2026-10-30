@@ -2,7 +2,8 @@
 import unittest
 
 from agents.cluster_definitions import (
-    CLUSTERS, DEVILS_ADVOCATE, MASTER_MANAGER, get_feedback_agent_config,
+    CLUSTERS, DEVILS_ADVOCATE, MASTER_MANAGER, focused_reviewer_role,
+    get_feedback_agent_config,
 )
 from security.capability_policy import authorize_agent_action as decide
 
@@ -57,7 +58,7 @@ class AgentCapabilityPolicyTests(unittest.TestCase):
         self.assertEqual(decide(DEVILS_ADVOCATE, "model_completion",
                                 cluster_id="coordination", round_num=1)["outcome"], "ALLOW")
         cluster = CLUSTERS["foundation"]
-        focused = {**cluster["agents"][0], "role": cluster["name"] + " reviewer",
+        focused = {**cluster["agents"][0], "role": focused_reviewer_role(cluster),
                    "goal": cluster["description"], "expertise": []}
         self.assertEqual(decide(focused, "model_completion", **self.kw)["outcome"], "ALLOW")
 

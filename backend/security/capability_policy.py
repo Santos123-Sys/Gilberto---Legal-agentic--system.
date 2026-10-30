@@ -7,7 +7,8 @@ Future retrieval/tool adapters MUST enforce this policy at their own boundary.
 from collections.abc import Mapping
 
 from agents.cluster_definitions import (
-    CLUSTERS, DEVILS_ADVOCATE, MASTER_MANAGER, get_feedback_agent_config,
+    CLUSTERS, DEVILS_ADVOCATE, MASTER_MANAGER, focused_reviewer_role,
+    get_feedback_agent_config,
 )
 
 POLICY_VERSION = "br-agent-tools-v1"
@@ -35,7 +36,7 @@ def _agent_identity(agent, cluster_id, round_num):
             if role == definition.get("role") and all(
                     agent.get(field) == definition.get(field)
                     for field in ("role", "goal", "backstory")):
-                return f"coordination:{kind}:{role}"
+                return f"coordination:{kind}:{definition.get('key') or role}"
         return None
     cluster = CLUSTERS.get(cluster_id)
     if not cluster:
@@ -45,13 +46,13 @@ def _agent_identity(agent, cluster_id, round_num):
     for kind, definition in candidates:
         if all(agent.get(field) == definition.get(field)
                for field in ("role", "goal", "backstory")):
-            return f"{cluster_id}:{kind}:{role}"
+            return f"{cluster_id}:{kind}:{definition.get('key') or role}"
     # Focused mode is a collapsed, known workstream, not a new free-form role.
-    if (role == cluster["name"] + " reviewer"
+    if (role == focused_reviewer_role(cluster)
             and agent.get("goal") == cluster["description"]
             and agent.get("backstory") == cluster["agents"][0]["backstory"]
             and agent.get("is_feedback_agent") is not True):
-        return f"{cluster_id}:focused:{role}"
+        return f"{cluster_id}:focused:{cluster.get('focused_key') or role}"
     # A feedback advocate's configuration must match the deterministic server
     # factory, its assigned cluster, and the currently executing round.
     if agent.get("is_feedback_agent") is True and type(round_num) is int and round_num >= 1:

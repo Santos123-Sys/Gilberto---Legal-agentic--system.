@@ -15,9 +15,9 @@ def synthesis_assurance(agent_reports):
         "authority_holdings_verified":0,
         "reasoning_rubric_expert_score":None,
         "warnings":[
-            "Contract-quote presence does not establish interpretation or factual truth.",
-            "Statutory text, case holdings, temporal validity and jurisdictional relevance not independently verified.",
-            "Model self-confidence and multi-agent agreement are not empirical legal accuracy.",
-            "Qualified Brazilian lawyer must review material conclusions before reliance.",
+            "A presença da transcrição contratual não estabelece a interpretação nem a veracidade dos fatos.",
+            "Texto legal, teses dos julgados, vigência temporal e pertinência jurisdicional não foram verificados de forma independente.",
+            "A autoconfiança do modelo e a concordância entre agentes não constituem precisão jurídica empírica.",
+            "Um advogado brasileiro habilitado deve revisar as conclusões relevantes antes de qualquer uso.",
         ],
     }
