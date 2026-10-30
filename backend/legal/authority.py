@@ -52,7 +52,7 @@ def classify_official_location(url):
         "authority_verified": False,
         "source_type": OFFICIAL_HOSTS[host],
         "origin": parts.scheme + "://" + host,
-        "limitations": "No retrieval, date, citation, authority or case-holding validation",
+        "limitations": "Sem consulta à fonte nem validação de data, citação, autoridade ou tese do julgado",
     }
 
 

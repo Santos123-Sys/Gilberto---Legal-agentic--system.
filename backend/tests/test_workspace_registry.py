@@ -24,5 +24,5 @@ class WorkspaceRegistryTests(unittest.TestCase):
         roster = roster_for_engine(engine, ["foundation"])
         self.assertEqual(len(roster), 1)
         self.assertEqual([a["role"] for a in roster[0]["agents"]], [
-            "Foundation & Document Integrity reviewer", "User Feedback Advocate (Round 2)"])
+            "Fundamentos e Integridade Documental — revisor focado", "User Feedback Advocate (Round 2)"])
         self.assertEqual(coordination_roster()["adversarial"]["kind"], "adversarial")

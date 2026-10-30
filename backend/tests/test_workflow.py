@@ -330,5 +330,5 @@ class BrazilianJurisdictionScopeTests(unittest.TestCase):
             document_text="Fictional contract invoking foreign legal regime.",
             agent_cfg=role, round_num=1,
             prior_cluster_summaries={}, previous_analyses=None)
-        self.assertIn("strictly Brazilian law", prompt)
+        self.assertIn("estritamente o direito brasileiro", prompt)
         self.assertIn("OUT_OF_SCOPE", prompt)
