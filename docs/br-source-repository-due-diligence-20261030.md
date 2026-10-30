@@ -1,54 +1,54 @@
-# Brazilian legal retrieval: preliminary third-party due diligence
+# Consulta a fontes jurídicas brasileiras: diligência preliminar sobre terceiros
 
-**Date:** 2026-10-30. **Decision:** research and pilot only; no dependency installed, copied or activated by this PR.
+**Data:** 30/10/2026. **Decisão:** apenas pesquisa e piloto; nenhuma dependência é instalada, copiada ou ativada por este PR.
 
-## Repository provenance and screening
+## Procedência e triagem dos repositórios
 
-| Candidate | Canonical source | Repository metadata inspected | Disposition |
+| Candidato | Fonte canônica | Metadados do repositório inspecionados | Destinação |
 |---|---|---|---|
-| LexMCP / `mcp-juridico-brasil` | https://github.com/ehrodan/lexmcp | GitHub metadata: MIT; last pushed 2026-07-24; published tests and workflows exist. Repository history is shallow (one commit in the inspected snapshot). README claims LexML, DataJud and local corpus support. | **PILOT, isolated and read-only**. Audit all network/credential paths, transitive licenses, output accuracy, rate-limit behavior, and actual source coverage before use. README claims are not verified performance. |
-| `EternoHelder/datasets-jur` | https://github.com/EternoHelder/datasets-jur | GitHub metadata: Apache-2.0 for repository; last pushed 2026-04-05. Sparse repository history. README describes STJ, DataJud and academic extraction scripts and explicitly says source data have separate terms. | **REJECT direct execution / integration**. The inspected STJ downloader interpolates untrusted remote API response data into a shell heredoc containing generated Python source and builds download URLs/file paths from remote metadata. These are injection/path-traversal risks requiring a safe-parser rewrite. Dataset rights remain separately unverified. |
-| Awesome Legal Data | https://github.com/openlegaldata/awesome-legal-data | Curated directory with Brazilian links; last pushed 2026-10-20. No license classification established in inspected metadata. | **APPROVE as discovery reference only**; **INSUFFICIENT EVIDENCE** for bundling, re-licensing or integrating code/data. |
-| ContractNLI | https://github.com/stanfordnlp/contract-nli and https://stanfordnlp.github.io/contract-nli/ | GitHub metadata CC-BY-4.0, research dataset of 607 English-language NDAs, 17 fixed hypotheses, entailment/contradiction/not-mentioned and evidence spans. Repo last pushed 2022-02-11. | **PILOT as evaluation methodology**, with attribution; never use as Brazilian statutory or jurisprudential ground truth. |
+| LexMCP / `mcp-juridico-brasil` | https://github.com/ehrodan/lexmcp | Metadados do GitHub: MIT; último envio em 24/07/2026; há testes e workflows publicados. O histórico do repositório é raso (um commit no instantâneo inspecionado). O README afirma suportar LexML, DataJud e um corpus local. | **PILOTO, isolado e somente leitura**. Auditar todos os caminhos de rede e de credenciais, as licenças transitivas, a precisão das saídas, o comportamento sob limites de requisição e a cobertura real das fontes antes do uso. As afirmações do README não são desempenho verificado. |
+| `EternoHelder/datasets-jur` | https://github.com/EternoHelder/datasets-jur | Metadados do GitHub: Apache-2.0 para o repositório; último envio em 05/04/2026. Histórico escasso. O README descreve scripts de extração do STJ, do DataJud e de trabalhos acadêmicos e afirma expressamente que os dados de origem têm termos próprios. | **REJEITAR a execução e a integração diretas**. O script de download do STJ inspecionado insere dados não confiáveis de uma API remota em um heredoc de shell que contém código Python gerado e monta URLs e caminhos de arquivo a partir de metadados remotos. São riscos de injeção e de travessia de caminho que exigem reescrita com um parser seguro. Os direitos sobre os dados continuam sem verificação. |
+| Awesome Legal Data | https://github.com/openlegaldata/awesome-legal-data | Diretório curado com links brasileiros; último envio em 20/10/2026. Nenhuma classificação de licença identificada nos metadados inspecionados. | **APROVADO apenas como referência de descoberta**; **EVIDÊNCIA INSUFICIENTE** para incluir, relicenciar ou integrar código ou dados. |
+| ContractNLI | https://github.com/stanfordnlp/contract-nli e https://stanfordnlp.github.io/contract-nli/ | Metadados do GitHub: CC-BY-4.0; conjunto de dados de pesquisa com 607 NDAs em inglês, 17 hipóteses fixas, rótulos de implicação/contradição/não mencionado e trechos de evidência. Último envio em 11/02/2022. | **PILOTO como metodologia de avaliação**, com atribuição; nunca usar como verdade de referência legislativa ou jurisprudencial brasileira. |
 
-Additional code inspection (2026-10-30):
-- **LexMCP:** `pyproject.toml` declares minimum-version dependencies with no comprehensive upper bounds. The inspected HTTP client implements timeouts, retries, rate limits and a TTL cache. The LexML client uses `follow_redirects=True`; before a pilot, validate redirect destinations and require a network egress allowlist. This is a code-pattern observation, not a penetration test.
-- **datasets-jur:** `scripts/download_stj_academicos.sh` inserts remote CKAN JSON into an unquoted Python heredoc and derives download URLs and filenames from remote resource fields. It also references a hard-coded local workspace path and placeholder identifiers. `scripts/download_datajud.py` contains a March 2026 cutoff. Do not execute or integrate these scripts as-is; safely reimplement retrieval with strict host/path validation and independently verify data rights.
+Inspeção adicional de código (30/10/2026):
+- **LexMCP:** o `pyproject.toml` declara dependências apenas com versão mínima, sem limites superiores abrangentes. O cliente HTTP inspecionado implementa tempos limite, novas tentativas, limites de requisição e cache com TTL. O cliente do LexML usa `follow_redirects=True`; antes de um piloto, validar os destinos de redirecionamento e exigir uma lista de destinos de rede permitidos. Trata-se de uma observação de padrão de código, e não de um teste de intrusão.
+- **datasets-jur:** `scripts/download_stj_academicos.sh` insere JSON remoto do CKAN em um heredoc Python sem aspas e deriva URLs de download e nomes de arquivo de campos de recursos remotos. Também referencia um caminho local fixo e identificadores provisórios. `scripts/download_datajud.py` contém um corte em março de 2026. Não executar nem integrar esses scripts como estão; reimplementar a consulta com segurança, com validação estrita de host e de caminho, e verificar de forma independente os direitos sobre os dados.
 
-The GitHub license labels are preliminary code/dataset license metadata, not a full legal opinion on rights of third-party material, model weights, derived corpora, or downstream commercial use. No full code-security review, dependency SBOM, deployment or retrieval accuracy experiment has yet been performed on these candidates. No reviewed artifact should be silently marked APPROVE FOR PRODUCTION.
+Os rótulos de licença do GitHub são metadados preliminares de licença de código e de dados, e não um parecer jurídico completo sobre direitos de material de terceiros, pesos de modelos, corpora derivados ou uso comercial posterior. Ainda não foram feitos, para esses candidatos, uma revisão completa de segurança do código, um SBOM das dependências, implantação nem experimento de precisão da consulta. Nenhum artefato revisado deve ser marcado silenciosamente como APROVADO PARA PRODUÇÃO.
 
-## Official-data feasibility
+## Viabilidade dos dados oficiais
 
-- [CNJ API Pública](https://www.cnj.jus.br/sistemas/datajud/api-publica/) describes public case-cover and movement **metadata**, not a reliable full-text holdings API. Do not use DataJud metadata to certify reasoning or case holdings.
-- [CNJ DataJud Wiki](https://datajud-wiki.cnj.jus.br/api-publica/acesso/) documents publicly provided API-key authentication; rotation is possible. Use a current, officially obtained value and never hard-code it.
-- [CNJ endpoints](https://datajud-wiki.cnj.jus.br/api-publica/endpoints/) are tribunal-specific aliases. Implement per-tribunal pagination, limits and retries.
-- Priority for statutory text: current official publication from Planalto and applicable official gazettes; LexML for metadata/discovery with authoritative cross-checks.
-- Priority for decisions: official STJ/STF or relevant tribunal **full text** with publication date, case number, legal proposition, passage and amended/overruled-state checks.
-- Every result must distinguish **metadata discovered**, **document retrieved**, **passage matched**, **holding verified**, **temporal validity assessed**, **counter-authority investigated**, and **human reviewed**.
+- A [API Pública do CNJ](https://www.cnj.jus.br/sistemas/datajud/api-publica/) descreve **metadados** públicos de capa processual e de movimentações, e não uma API confiável de inteiro teor dos julgados. Não usar metadados do DataJud para certificar fundamentação ou teses de julgados.
+- A [Wiki do DataJud (CNJ)](https://datajud-wiki.cnj.jus.br/api-publica/acesso/) documenta a autenticação por chave de API fornecida publicamente; a rotação é possível. Usar um valor atual, obtido por via oficial, e nunca fixá-lo no código.
+- Os [endpoints do CNJ](https://datajud-wiki.cnj.jus.br/api-publica/endpoints/) são apelidos específicos por tribunal. Implementar paginação, limites e novas tentativas por tribunal.
+- Prioridade para texto legal: publicação oficial vigente do Planalto e dos diários oficiais aplicáveis; LexML para metadados e descoberta, com conferência em fontes oficiais.
+- Prioridade para decisões: **inteiro teor** oficial do STJ, do STF ou do tribunal pertinente, com data de publicação, número do processo, tese jurídica, trecho e verificação de alteração ou superação.
+- Todo resultado deve distinguir **metadados descobertos**, **documento obtido**, **trecho correspondente**, **tese verificada**, **vigência temporal avaliada**, **fundamentos contrários investigados** e **revisão humana**.
 
-## Staged pilot contract
+## Contrato do piloto em etapas
 
-1. No confidential client material; only controlled synthetic inputs.
-2. Read-only retrieval tools with explicit host allowlist, SSRF protection, scoped credentials, request budgets, caching rights and hard rate limits.
-3. Ingestion must preserve original URLs, institution, retrieval timestamp, content digest, case/date, document version and evidence spans.
-4. Separate authenticity, passage, applicability, validity and review flags. No single `VERIFIED` boolean.
-5. Golden fixtures must be approved by independent qualified Brazilian counsel. Use distinct test/held-out sets, with false-positive and false-negative metrics.
-6. Compare each adapter against direct official sources; record coverage, errors, p50/p95 latency, total run cost and exit/reversal conditions.
-7. Require a signed-off dependency license list, SBOM, vulnerability scan, network/secret threat review and CI results before integrating.
-8. Do not use these candidate datasets to imply OAB endorsement or a verified legal opinion.
+1. Nenhum material confidencial de clientes; apenas entradas sintéticas controladas.
+2. Ferramentas de consulta somente leitura, com lista explícita de hosts permitidos, proteção contra SSRF, credenciais de escopo restrito, orçamentos de requisição, direitos de cache e limites rígidos de requisição.
+3. A ingestão deve preservar URLs originais, instituição, data e hora da consulta, hash do conteúdo, processo/data, versão do documento e trechos de evidência.
+4. Sinais separados de autenticidade, trecho, aplicabilidade, vigência e revisão. Nenhum booleano único `VERIFIED`.
+5. Os gabaritos devem ser aprovados por advogados brasileiros habilitados e independentes. Usar conjuntos distintos de teste e de validação reservada, com métricas de falsos positivos e falsos negativos.
+6. Comparar cada adaptador com as fontes oficiais diretas; registrar cobertura, erros, latência p50/p95, custo total da execução e condições de saída ou reversão.
+7. Exigir, antes da integração, lista de licenças de dependências aprovada, SBOM, varredura de vulnerabilidades, revisão de ameaças de rede e de segredos e resultados da integração contínua.
+8. Não usar esses conjuntos de dados candidatos para sugerir endosso da OAB ou parecer jurídico verificado.
 
-## Build-versus-buy recommendation (provisional)
+## Recomendação entre construir e contratar (provisória)
 
-Begin with existing deterministic quote checks and official-source adapters owned by Gilberto. Use open-source retrieval libraries only through small, explicitly authorized interfaces. Consider a commercial full-text provider (including JUIT) **only** after measuring a documented completeness, licensing or reliability deficit that cannot economically be closed with the official-source strategy.
+Começar com as verificações determinísticas de transcrição já existentes e com adaptadores de fontes oficiais mantidos pelo próprio Gilberto. Usar bibliotecas de consulta de código aberto somente por meio de interfaces pequenas e expressamente autorizadas. Considerar um fornecedor comercial de inteiro teor (inclusive o JUIT) **somente** após medir uma deficiência documentada de completude, licenciamento ou confiabilidade que não possa ser sanada de forma econômica pela estratégia de fontes oficiais.
 
-The relevant metric is fully verified and lawyer-accepted Brazilian legal analyses per unit of total cost, not search volume or token price. Costs and rights require current vendor terms and measured workload; no purchase is authorized by this document.
+A métrica relevante é o número de análises jurídicas brasileiras integralmente verificadas e aceitas por advogados por unidade de custo total, e não o volume de buscas ou o preço por token. Custos e direitos exigem os termos vigentes dos fornecedores e a medição da carga de trabalho; este documento não autoriza nenhuma contratação.
 
-## Synthetic benchmark in this PR
+## Benchmark sintético neste PR
 
-`backend/benchmarks/contract_controls.py` probes a fictional commercial contract for an invented STJ citation, a 20% versus 2% penalty mismatch, unsupported representative authority, forum clause enforceability and a valid literal-extraction negative control. It exercises existing **deterministic** matching and evidence-status code. It does not call a model or verify Brazilian case law.
+`backend/benchmarks/contract_controls.py` testa um contrato comercial fictício quanto a uma citação inventada do STJ, à divergência entre multa de 20% e de 2%, a poderes de representação sem respaldo, à validade da cláusula de foro e a um controle negativo válido de extração literal. Ele exercita o código **determinístico** existente de correspondência e de status de evidência. Não aciona um modelo nem verifica a jurisprudência brasileira.
 
-Acceptance: five expected control states and no implicit legal certification. Model accuracy, full-text source accuracy, lawyer ground truth and cross-model costs remain **NOT VERIFIED**.
+Critério de aceitação: cinco estados de controle esperados e nenhuma certificação jurídica implícita. A precisão do modelo, a precisão das fontes de inteiro teor, a verdade de referência por advogados e os custos entre modelos permanecem **NÃO VERIFICADOS**.
 
-## Independent release reviewers
+## Revisores independentes da liberação
 
-**Engineering Audit Manager**: verify provenance schema, licensing, citation tests, security and synthetic fixture integrity. **DevOps Manager**: verify CI, network/secret boundaries, staging, repeatability and rollback. These are review responsibilities, not claims that autonomous manager processes are running.
+**Gerente de Auditoria de Engenharia**: verifica o esquema de procedência, o licenciamento, os testes de citação, a segurança e a integridade dos casos sintéticos. **Gerente de DevOps**: verifica a integração contínua, os limites de rede e de segredos, a homologação, a reprodutibilidade e a reversão. Estas são responsabilidades de revisão, e não afirmações de que processos gerenciais autônomos estejam em execução.

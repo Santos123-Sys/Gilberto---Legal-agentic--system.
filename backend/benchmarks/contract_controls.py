@@ -20,7 +20,7 @@ PROBES = (
         "id": "BR-CONTRACT-A",
         "risk": "invented_stj_precedent",
         "finding": {
-            "item": "Synthetic case citation",
+            "item": "Citação sintética de precedente",
             "evidence": "Cláusula 2. A multa por atraso é de 2% sobre a parcela vencida.",
             "legal_basis": "REsp 9.999.999/DF, precedente fictício não verificado",
         },
@@ -31,7 +31,7 @@ PROBES = (
         "id": "BR-CONTRACT-B",
         "risk": "incorrect_penalty_20_vs_2_percent",
         "finding": {
-            "item": "Invented contractual fine",
+            "item": "Multa contratual inventada",
             "evidence": "Cláusula 2. A multa por atraso é de 20% sobre a parcela vencida.",
             "legal_basis": "",
         },
@@ -42,7 +42,7 @@ PROBES = (
         "id": "BR-CONTRACT-C",
         "risk": "unproven_signatory_authority",
         "finding": {
-            "item": "Signatory is allegedly authorized",
+            "item": "Signatário supostamente autorizado",
             "evidence": "Cláusula 3. Assina por Alfa o Sr. Exemplo, Diretor.",
             "legal_basis": "Poderes representativos não demonstrados",
         },
@@ -53,7 +53,7 @@ PROBES = (
         "id": "BR-CONTRACT-D",
         "risk": "forum_enforceability_not_established_by_clause",
         "finding": {
-            "item": "Forum selection supposedly enforceable",
+            "item": "Eleição de foro supostamente válida",
             "evidence": "Cláusula 4. As partes elegem o foro da Comarca de São Paulo/SP.",
             "legal_basis": "Art. 63 do CPC, aplicabilidade não verificada",
         },
@@ -64,7 +64,7 @@ PROBES = (
         "id": "BR-CONTRACT-E",
         "risk": "negative_control_literal_penalty_extraction",
         "finding": {
-            "item": "Literal penalty extraction only",
+            "item": "Somente extração literal da multa",
             "evidence": "Cláusula 2. A multa por atraso é de 2% sobre a parcela vencida.",
             "legal_basis": "",
         },
@@ -111,8 +111,9 @@ def run_contract_controls():
         "qualified_lawyer_ground_truth": False,
         "external_provider_invoked": False,
         "limitations": (
-            "Checks quotation presence and unverified authority flags only. "
-            "No model dry run, precedent existence search, authority applicability "
-            "or independent Brazilian-law expert scoring."
+            "Verifica apenas a presença das transcrições e os sinais de fundamento não verificado. "
+            "Não há execução de teste do modelo, pesquisa da existência de precedentes, "
+            "verificação da aplicabilidade do fundamento nem pontuação independente por "
+            "especialistas em direito brasileiro."
         ),
     }
