@@ -37,5 +37,5 @@ def assess_agent_claims(parsed, document_text, as_of_date=None):
         "material_findings_count": len(findings),
         "assessed_findings_count": len(result),
         "findings": result,
-        "method": "Deterministic supplied-text matching; no live statutory or case-law verification",
+        "method": "Correspondência determinística com o texto fornecido; sem verificação em tempo real da legislação ou da jurisprudência",
     }
