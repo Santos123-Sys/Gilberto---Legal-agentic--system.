@@ -9,6 +9,7 @@ import { SynthesisDashboard } from './components/SynthesisDashboard'
 import { AuditTrail } from './components/AuditTrail'
 import { AgenticProgress } from './components/AgenticProgress'
 import { AgentReviewConsole } from './components/AgentReviewConsole'
+import { SwarmWorkspace } from './components/SwarmWorkspace'
 import { useAgenticSession } from './hooks/useAgenticSession'
 
 // ─────────────────────────────────────────────
@@ -205,6 +206,16 @@ export default function App() {
           />
         )}
 
+        {/* Real backend-derived agent hierarchy and source-aware inspection. */}
+        {session.sessionId && session.config &&
+          import.meta.env.VITE_SWARM_WORKSPACE !== 'false' &&
+          ['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error', 'cancelled', 'cancellation_requested'].includes(session.status) && (
+            <SwarmWorkspace sessionId={session.sessionId} config={session.config}
+              events={session.events} status={session.status} connectionState={session.connectionState}
+              executionState={session.executionState} pendingGates={session.pendingGates}
+              executionMetrics={session.executionMetrics} documentName={session.documentName} />
+          )}
+
         {/* ── STAGE 3: Running — Live Cluster Panel ── */}
         {isRunning && (
           <div className="space-y-6">
@@ -245,7 +256,7 @@ export default function App() {
         )}
 
         {['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error', 'cancelled'].includes(session.status) && (
-          <div className="my-6">
+          <div id="gilberto-review-desk" className="my-6 scroll-mt-24">
             <AgentReviewConsole events={session.events} humanVotes={session.humanVotes}
               status={session.status} onVote={session.castHumanVote} />
           </div>
