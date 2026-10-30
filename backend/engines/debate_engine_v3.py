@@ -74,6 +74,15 @@ def safe_workstream_failure(exc):
         return {"category": "execution", "code": "cancelled"}
     if isinstance(exc, WorkflowError):
         message = str(exc)
+        # Security and cost controls are classified separately so a reviewer
+        # can distinguish a deliberate fail-closed denial from an ordinary
+        # interruption. Only fixed codes are returned, never the message.
+        if message.startswith("Agent capability policy blocked dispatch"):
+            return {"category": "policy", "code": "policy_denied"}
+        if message.startswith("Per-review estimated cost ceiling reached"):
+            return {"category": "policy", "code": "cost_ceiling"}
+        if message.startswith("Cost cap configured without both model price rates"):
+            return {"category": "policy", "code": "cost_configuration"}
         if message.startswith("AI provider timed out"):
             code = "provider_timeout"
         elif message.startswith("Model-call budget reached"):

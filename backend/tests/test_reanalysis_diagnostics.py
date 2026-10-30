@@ -28,6 +28,50 @@ class FailureClassificationTests(unittest.TestCase):
         self.assertEqual(safe_workstream_failure(WorkflowError("Model-call budget reached; PRIVATE"))["code"],
                          "model_call_budget")
 
+    def test_security_and_cost_denials_are_not_reported_as_interruptions(self):
+        cases = {
+            "Agent capability policy blocked dispatch: UNKNOWN_OR_CROSS_CLUSTER_AGENT":
+                "policy_denied",
+            "Per-review estimated cost ceiling reached; no further model requests sent":
+                "cost_ceiling",
+            "Cost cap configured without both model price rates; refusing paid dispatch":
+                "cost_configuration",
+        }
+        for message, code in cases.items():
+            with self.subTest(code=code):
+                data = safe_workstream_failure(WorkflowError(message))
+                self.assertEqual(data, {"category": "policy", "code": code})
+        self.assertEqual(safe_workstream_failure(WorkflowError("something else"))["code"],
+                         "workflow_interrupted")
+
+
+class PolicyDenialCouplingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_real_policy_denial_is_classified_as_policy_denied(self):
+        # Couples the classifier to the exception the real capability policy
+        # raises, so a reworded policy message cannot silently fall back to
+        # the generic "workflow_interrupted" code.
+        engine = DebateEngineV3("synthetic-policy", 1, 1, "contract_review")
+        engine.current_round = 1
+        with patch("engines.debate_engine_v3._run_crew") as provider:
+            with self.assertRaises(WorkflowError) as raised:
+                await engine._run_agent({"role": "unrostered", "goal": "unknown"},
+                                        "synthetic", cluster_id="foundation")
+            provider.assert_not_called()
+        self.assertEqual(safe_workstream_failure(raised.exception),
+                         {"category": "policy", "code": "policy_denied"})
+
+    async def test_real_backup_consent_denial_is_classified_as_policy_denied(self):
+        from agents.cluster_definitions import CLUSTERS
+        engine = DebateEngineV3("synthetic-backup", 1, 1, "contract_review",
+                                provider_mode="backup")
+        engine.current_round = 1
+        with patch("engines.debate_engine_v3._run_crew") as provider:
+            with self.assertRaises(WorkflowError) as raised:
+                await engine._run_agent(CLUSTERS["foundation"]["agents"][0],
+                                        "synthetic", cluster_id="foundation")
+            provider.assert_not_called()
+        self.assertEqual(safe_workstream_failure(raised.exception)["code"], "policy_denied")
+
 
 class ReanalysisFailureTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -89,6 +133,17 @@ class ReanalysisFailureTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("CLIENT SECRET", msg)
         self.assertIs(self.engine.cluster_summaries["foundation"], self.previous_foundation)
         self.assertIs(self.engine.cluster_summaries["strategy"], self.previous_strategy)
+
+    async def test_policy_denial_during_reanalysis_is_visible_and_not_merged(self):
+        msg = await self._run_failed(
+            WorkflowError("Agent capability policy blocked dispatch: UNKNOWN_OR_CROSS_CLUSTER_AGENT"),
+            None,
+        )
+        self.assertIn("foundation (policy_denied)", msg)
+        self.assertIs(self.engine.cluster_summaries["foundation"], self.previous_foundation)
+        self.assertIs(self.engine.cluster_summaries["strategy"], self.previous_strategy)
+        failure = self.engine.execution_metrics["reanalysis_failures"][0]
+        self.assertEqual((failure["category"], failure["code"]), ("policy", "policy_denied"))
 
     async def test_no_implicit_retry_after_provider_fault(self):
         await self._run_failed(ProviderError("provider_unavailable", "PRIVATE", 503),
