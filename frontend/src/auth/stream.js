@@ -22,7 +22,7 @@ export class AuthenticatedEventStream {
       })
       if (!response.ok || !response.body ||
           !response.headers.get('content-type')?.startsWith('text/event-stream')) {
-        throw new Error('Authenticated event history could not be opened.')
+        throw new Error('Não foi possível abrir o histórico autenticado de eventos.')
       }
       if (this.closed) return
       this.onopen?.()
@@ -42,9 +42,9 @@ export class AuthenticatedEventStream {
             .map(line => line.slice(5).trimStart()).join('\n')
           if (payload && !this.closed) this.onmessage?.({ data: payload })
         }
-        if (buffer.length > 2_000_000) throw new Error('Progress frame exceeds safety limit.')
+        if (buffer.length > 2_000_000) throw new Error('O quadro de progresso excede o limite de segurança.')
       }
-      if (!this.closed) this.onerror?.(new Error('Progress stream disconnected.'))
+      if (!this.closed) this.onerror?.(new Error('O fluxo de progresso foi desconectado.'))
     } catch (error) {
       if (!this.closed && error.name !== 'AbortError') this.onerror?.(error)
     }

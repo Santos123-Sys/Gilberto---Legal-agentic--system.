@@ -36,6 +36,6 @@ class DispatchBarrierTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.02)
             engine._provider_aborted = True
             engine._dispatch_allowed.set()
-            with self.assertRaisesRegex(Exception, "stopped after a timeout"):
+            with self.assertRaisesRegex(Exception, "interrompida após um tempo esgotado"):
                 await pending
             dispatch.assert_not_called()

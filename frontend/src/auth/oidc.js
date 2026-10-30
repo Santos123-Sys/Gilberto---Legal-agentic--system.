@@ -92,13 +92,13 @@ async function exchangeCode() {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body, credentials: 'omit', cache: 'no-store',
   })
-  if (!response.ok) throw new Error('Identity provider rejected the sign-in exchange.')
+  if (!response.ok) throw new Error('O provedor de identidade recusou a troca de autenticação.')
   const data = await response.json()
   const seconds = Number(data.expires_in)
   if (data.token_type?.toLowerCase() !== 'bearer' ||
       typeof data.access_token !== 'string' || !data.access_token ||
       !Number.isFinite(seconds) || seconds <= 30 || seconds > 86400) {
-    throw new Error('Identity provider returned an invalid API access-token response.')
+    throw new Error('O provedor de identidade retornou uma resposta inválida de token de acesso à API.')
   }
   accessToken = data.access_token
   validUntil = Date.now() + seconds * 1000 - 30_000

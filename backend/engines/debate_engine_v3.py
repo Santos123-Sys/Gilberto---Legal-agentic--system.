@@ -41,7 +41,24 @@ from models.schemas import AgentAnalysis, ClusterSummary, DevilAdvocateOutput, M
 
 
 class WorkflowError(RuntimeError):
-    """A safe, user-actionable orchestration error without provider payloads."""
+    """A safe, user-actionable orchestration error without provider payloads.
+
+    ``code`` is a fixed, language-independent identifier used for diagnostics.
+    The message is user-facing Portuguese text and may be reworded freely;
+    never classify an error by its message.
+    """
+
+    def __init__(self, message: str, code: str = "workflow_interrupted"):
+        super().__init__(message)
+        self.code = code
+
+
+# Fixed diagnostic codes, grouped by category, for WorkflowError.code.
+_POLICY_CODES = frozenset({"policy_denied", "cost_ceiling", "cost_configuration"})
+_EXECUTION_CODES = frozenset({
+    "provider_timeout", "model_call_budget", "context_budget",
+    "prior_provider_timeout", "workflow_interrupted",
+})
 
 
 class ReanalysisRequested(Exception):
@@ -73,25 +90,14 @@ def safe_workstream_failure(exc):
     if isinstance(exc, asyncio.CancelledError):
         return {"category": "execution", "code": "cancelled"}
     if isinstance(exc, WorkflowError):
-        message = str(exc)
         # Security and cost controls are classified separately so a reviewer
         # can distinguish a deliberate fail-closed denial from an ordinary
-        # interruption. Only fixed codes are returned, never the message.
-        if message.startswith("Agent capability policy blocked dispatch"):
-            return {"category": "policy", "code": "policy_denied"}
-        if message.startswith("Per-review estimated cost ceiling reached"):
-            return {"category": "policy", "code": "cost_ceiling"}
-        if message.startswith("Cost cap configured without both model price rates"):
-            return {"category": "policy", "code": "cost_configuration"}
-        if message.startswith("AI provider timed out"):
-            code = "provider_timeout"
-        elif message.startswith("Model-call budget reached"):
-            code = "model_call_budget"
-        elif message.startswith("Document context exceeds"):
-            code = "context_budget"
-        elif message.startswith("Provider execution stopped after a timeout"):
-            code = "prior_provider_timeout"
-        else:
+        # interruption. Only allowlisted fixed codes are returned, never the
+        # message, and never derived from the message's wording.
+        code = getattr(exc, "code", None)
+        if code in _POLICY_CODES:
+            return {"category": "policy", "code": code}
+        if code not in _EXECUTION_CODES:
             code = "workflow_interrupted"
         return {"category": "execution", "code": code}
     if isinstance(exc, (ValueError, TypeError)):
@@ -403,9 +409,9 @@ class DebateEngineV3:
             if self._provider_failure:
                 raise self._provider_failure
             if self._provider_aborted:
-                raise WorkflowError("Provider execution stopped after a timeout; start a new review after checking the provider")
+                raise WorkflowError("A execução no provedor foi interrompida após um tempo esgotado; verifique o provedor antes de iniciar uma nova revisão", code="prior_provider_timeout")
             if self.execution_metrics["model_calls"] >= settings.MAX_MODEL_CALLS:
-                raise WorkflowError("Model-call budget reached; partial findings remain available")
+                raise WorkflowError("Limite de chamadas ao modelo atingido; as conclusões parciais continuam disponíveis", code="model_call_budget")
             # Approximate input tokens conservatively from prompt size.
             estimated_input_tokens = max(1, (len(prompt) + 2) // 3)
             async with self._llm_start_lock:
@@ -422,7 +428,7 @@ class DebateEngineV3:
                     )
                     budget = max(1, settings.LLM_INPUT_TOKENS_PER_MINUTE)
                     if estimated_input_tokens > budget:
-                        raise WorkflowError("Document context exceeds the configured per-minute input budget. Use a shorter document or increase the provider-entitled budget")
+                        raise WorkflowError("O documento excede o orçamento de entrada por minuto configurado. Use um documento mais curto ou aumente o orçamento contratado com o provedor", code="context_budget")
                     pacing_wait = max(0.0, self._llm_next_start_at - now)
                     token_wait = 0.0
                     if (
@@ -445,9 +451,9 @@ class DebateEngineV3:
                 if self._provider_failure:
                     raise self._provider_failure
                 if self._provider_aborted:
-                    raise WorkflowError("Provider execution stopped after a timeout")
+                    raise WorkflowError("A execução no provedor foi interrompida após um tempo esgotado", code="prior_provider_timeout")
                 if self.execution_metrics["model_calls"] >= settings.MAX_MODEL_CALLS:
-                    raise WorkflowError("Model-call budget reached; partial findings remain available")
+                    raise WorkflowError("Limite de chamadas ao modelo atingido; as conclusões parciais continuam disponíveis", code="model_call_budget")
                 # Authorize at the actual model-dispatch boundary, independent of
                 # frontend controls, agent prompts and agent-supplied tool lists.
                 decision = authorize_agent_action(
@@ -462,8 +468,8 @@ class DebateEngineV3:
                         reason_code=decision["reason_code"],
                         policy_version=decision["policy_version"],
                     ))
-                    raise WorkflowError("Agent capability policy blocked dispatch: "
-                                        + decision["reason_code"])
+                    raise WorkflowError("A política de capacidades do agente bloqueou o envio: "
+                                        + decision["reason_code"], code="policy_denied")
                 # Reserve conservative upper-bound output BEFORE paid dispatch.
                 # Does not claim actual provider billing or exact tokenizer size.
                 hard_cap = settings.MAX_REVIEW_ESTIMATED_USD
@@ -473,7 +479,7 @@ class DebateEngineV3:
                                 if self.provider_mode == "backup" else settings.LLM_OUTPUT_PRICE_USD_PER_1M)
                 if hard_cap > 0:
                     if input_price <= 0 or output_price <= 0:
-                        raise WorkflowError("Cost cap configured without both model price rates; refusing paid dispatch")
+                        raise WorkflowError("Teto de custo configurado sem os dois preços do modelo; envio pago recusado", code="cost_configuration")
                     reservation = (
                         estimated_input_tokens * input_price
                         + (settings.FALLBACK_LLM_MAX_COMPLETION_TOKENS
@@ -481,7 +487,7 @@ class DebateEngineV3:
                            else settings.MAX_TOKENS) * output_price
                     ) / 1_000_000
                     if self.execution_metrics["reserved_upper_bound_usd"] + reservation > hard_cap:
-                        raise WorkflowError("Per-review estimated cost ceiling reached; no further model requests sent")
+                        raise WorkflowError("Teto de custo estimado por revisão atingido; nenhuma nova requisição ao modelo foi enviada", code="cost_ceiling")
                     self.execution_metrics["reserved_upper_bound_usd"] += reservation
                 self.execution_metrics["model_calls"] += 1
                 started_at = time.monotonic()
@@ -508,7 +514,7 @@ class DebateEngineV3:
                     timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
                 )
                 if self._provider_aborted:
-                    raise WorkflowError("Provider result discarded after execution stopped")
+                    raise WorkflowError("Resultado do provedor descartado após a interrupção da execução")
                 task_trace["status"] = "completed"
                 return result
             except asyncio.CancelledError:
@@ -520,7 +526,7 @@ class DebateEngineV3:
             except asyncio.TimeoutError:
                 task_trace["status"] = "timed_out"
                 self._provider_aborted = True
-                raise WorkflowError("AI provider timed out. Completed findings are retained; no automatic retry was sent") from None
+                raise WorkflowError("O provedor de IA excedeu o tempo limite. As conclusões já concluídas foram mantidas; nenhuma nova tentativa automática foi enviada", code="provider_timeout") from None
             except Exception as exc:
                 if isinstance(exc, ProviderError):
                     self._provider_failure = exc
@@ -859,7 +865,7 @@ class DebateEngineV3:
             if failures and all(isinstance(exc, ProviderError) for exc in failures):
                 raise failures[0]
             if failed or not self.cluster_summaries:
-                raise WorkflowError("Specialist review incomplete: " + ", ".join(failed or ["no active clusters"]))
+                raise WorkflowError("Revisão especializada incompleta: " + ", ".join(failed or ["nenhum grupo ativo"]))
 
             # Devil's Advocate
             await self._run_devils_advocate(document_text, round_num)
@@ -911,7 +917,7 @@ class DebateEngineV3:
             total_agents_run=sum(1 if self.review_depth == "focused" else len(CLUSTERS[cid]["agents"]) for cid in self.cluster_summaries) * self.num_rounds,
             execution_metrics=self.execution_metrics,
             gate_records=self.gate_evaluator.gate_records,
-            message="Analysis complete. Awaiting user feedback.",
+            message="Análise concluída. Aguardando comentários do usuário.",
         ))
 
         self._running = False
@@ -1032,9 +1038,9 @@ class DebateEngineV3:
                 item["cluster"] + " (" + item["code"] + ")" for item in failed
             )
             raise WorkflowError(
-                "Re-analysis incomplete: " + codes +
-                ". Earlier findings are retained but are not a verified final analysis. "
-                "Check the provider or model-output diagnostic before a new review."
+                "Reanálise incompleta: " + codes +
+                ". As conclusões anteriores foram mantidas, mas não constituem uma análise final verificada. "
+                "Verifique o diagnóstico do provedor ou da saída do modelo antes de uma nova revisão."
             )
         self.cluster_summaries.update(pending_summaries)
 
@@ -1064,7 +1070,7 @@ class DebateEngineV3:
             "DEBATE_COMPLETE",
             total_rounds=new_round,
             gate_records=self.gate_evaluator.gate_records,
-            message="Feedback incorporated. Analysis updated.",
+            message="Comentários incorporados. Análise atualizada.",
         ))
 
 

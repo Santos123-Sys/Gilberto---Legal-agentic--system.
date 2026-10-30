@@ -33,8 +33,8 @@ async function launch(page, calls) {
     name: 'synthetic.txt', mimeType: 'text/plain',
     buffer: Buffer.from('Synthetic Brazilian law review for UI testing'),
   })
-  await page.getByRole('button', { name: 'Start Debate' }).click()
-  await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
+  await page.getByRole('button', { name: 'Iniciar debate' }).click()
+  await page.getByRole('button', { name: 'Prosseguir com a análise' }).click()
   await expect.poll(() => page.evaluate(() => window.testStreams.length)).toBe(1)
 }
 
@@ -48,10 +48,10 @@ async function emit(page, rows) {
 test('owner pauses new model dispatch and explicitly resumes', async ({ page }) => {
   const calls = []
   await launch(page, calls)
-  await page.getByRole('button', { name: 'Pause agent dispatch' }).click()
-  await expect(page.getByText('New AI dispatch is paused.', { exact: false })).toBeVisible()
-  await page.getByRole('button', { name: 'Resume agent dispatch' }).click()
-  await expect(page.getByRole('button', { name: 'Pause agent dispatch' })).toBeVisible()
+  await page.getByRole('button', { name: 'Pausar o envio aos agentes' }).click()
+  await expect(page.getByText('O envio de novas requisições à IA está pausado.', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Retomar o envio aos agentes' }).click()
+  await expect(page.getByRole('button', { name: 'Pausar o envio aos agentes' })).toBeVisible()
   expect(calls.map(c => c.path)).toEqual(['/api/sessions/owner-test/pause', '/api/sessions/owner-test/resume'])
 })
 
@@ -66,16 +66,16 @@ test('user inspects model votes and submits distinct expert advisory vote', asyn
     { event_id: 3, type: 'AGENT_VOTE_CAST', voter: 'Peer legal model',
       cluster: 'foundation', round: 1, scores: { score: 7 } },
   ])
-  await expect(page.getByRole('heading', { name: 'Agent analysis & voting console' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Painel de análises dos agentes e votação' })).toBeVisible()
   await expect(page.getByText('Synthetic evidence not yet verified')).toBeVisible()
-  await page.getByText('Model peer voting ledger').click()
+  await page.getByText('Registro de votos entre modelos').click()
   await expect(page.getByText('Peer legal model')).toBeVisible()
-  await page.getByLabel('Your assessment').selectOption('needs_evidence')
-  await page.getByLabel('Reason (required)').fill('Verify the STF citation and statute version.')
-  await page.getByRole('button', { name: 'Record advisory vote for event #2' }).click()
-  await expect(page.getByText('Your recorded advisory vote: needs evidence')).toBeVisible()
+  await page.getByLabel('Sua avaliação').selectOption('needs_evidence')
+  await page.getByLabel('Motivo (obrigatório)').fill('Verify the STF citation and statute version.')
+  await page.getByRole('button', { name: 'Registrar voto consultivo para o evento #2' }).click()
+  await expect(page.getByText('Seu voto consultivo registrado: provas insuficientes')).toBeVisible()
   const vote = calls.find(c => c.path.endsWith('/human-votes'))
   expect(vote.body).toMatchObject({ event_id: 2, decision: 'needs_evidence',
     reasoning: 'Verify the STF citation and statute version.' })
-  await expect(page.getByText('These are AI-generated assessments', { exact: false })).toBeVisible()
+  await expect(page.getByText('Estas são avaliações geradas por IA', { exact: false })).toBeVisible()
 })

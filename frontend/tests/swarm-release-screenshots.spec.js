@@ -41,20 +41,20 @@ async function start(page) {
     name: 'only-synthetic-br-contract.txt', mimeType: 'text/plain',
     buffer: Buffer.from('This fixture contains no genuine confidential contracts.'),
   })
-  await page.getByRole('button', { name: 'Start Debate' }).click()
-  await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
-  await expect(page.getByRole('region', { name: 'Gilberto swarm command center' })).toBeVisible()
+  await page.getByRole('button', { name: 'Iniciar debate' }).click()
+  await page.getByRole('button', { name: 'Prosseguir com a análise' }).click()
+  await expect(page.getByRole('region', { name: 'Central de comando dos agentes do Gilberto' })).toBeVisible()
 }
 
 for (const width of [390, 768, 1280, 1920]) {
   test('synthetic screenshot and interaction at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await start(page)
-    const inspector = page.getByRole('complementary', { name: 'Run inspector' })
+    const inspector = page.getByRole('complementary', { name: 'Inspetor da execução' })
     await expect(inspector).toBeVisible()
-    await inspector.getByRole('tab', { name: 'Events' }).click()
-    await expect(inspector.getByText('No backend events recorded.')).toBeVisible()
-    await inspector.getByRole('tab', { name: 'Agent' }).click()
+    await inspector.getByRole('tab', { name: 'Eventos' }).click()
+    await expect(inspector.getByText('Nenhum evento do servidor registrado.')).toBeVisible()
+    await inspector.getByRole('tab', { name: 'Agente' }).click()
     await expect(inspector.getByText('Test Specialist', { exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: /Test Specialist/ }).click()
     await expect(inspector.getByText('Test Specialist', { exact: true })).toBeVisible()

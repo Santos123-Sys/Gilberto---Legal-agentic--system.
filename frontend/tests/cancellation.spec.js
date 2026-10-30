@@ -19,10 +19,10 @@ test('authenticated owner can request cancellation and sees unambiguous status',
   await page.locator('#doc-upload').setInputFiles({
     name: 'test.txt', mimeType: 'text/plain', buffer: Buffer.from('synthetic'),
   })
-  await page.getByRole('button', { name: 'Start Debate' }).click()
-  await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
-  await expect(page.getByRole('button', { name: 'Cancel analysis' })).toBeVisible()
-  await page.getByRole('button', { name: 'Cancel analysis' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Cancellation requested' }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Iniciar debate' }).click()
+  await page.getByRole('button', { name: 'Prosseguir com a análise' }).click()
+  await expect(page.getByRole('button', { name: 'Cancelar análise' })).toBeVisible()
+  await page.getByRole('button', { name: 'Cancelar análise' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Cancelamento solicitado' }).first()).toBeVisible()
   expect(cancellationCalls).toBe(1)
 })

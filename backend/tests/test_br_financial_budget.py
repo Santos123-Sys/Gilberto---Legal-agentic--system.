@@ -18,7 +18,7 @@ class FinancialBudgetTests(unittest.IsolatedAsyncioTestCase):
             await engine._run_agent(AGENT,"a",cluster_id="foundation")
             self.assertEqual(engine.execution_metrics["model_calls"],1)
             self.assertEqual(engine.execution_metrics["reserved_upper_bound_usd"],2.0)
-            with self.assertRaisesRegex(WorkflowError,"ceiling"):
+            with self.assertRaisesRegex(WorkflowError,"Teto de custo estimado"):
                 await engine._run_agent(AGENT,"b",cluster_id="foundation")
             self.assertEqual(dispatch.call_count,1)
 
@@ -29,7 +29,7 @@ class FinancialBudgetTests(unittest.IsolatedAsyncioTestCase):
              patch.object(settings,"LLM_OUTPUT_PRICE_USD_PER_1M",1), \
              patch.object(settings,"LLM_MIN_REQUEST_INTERVAL_SECONDS",0), \
              patch("engines.debate_engine_v3._run_crew") as dispatch:
-            with self.assertRaisesRegex(WorkflowError,"without both model price"):
+            with self.assertRaisesRegex(WorkflowError,"sem os dois preços do modelo"):
                 await engine._run_agent(AGENT,"a",cluster_id="foundation")
             dispatch.assert_not_called()
 

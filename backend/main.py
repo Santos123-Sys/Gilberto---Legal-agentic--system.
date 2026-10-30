@@ -119,22 +119,22 @@ def current_principal(request: Request) -> Principal:
     if settings.AUTH_MODE == "local":
         entry = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
         if not entry:
-            raise HTTPException(status_code=401, detail="Authentication required")
+            raise HTTPException(status_code=401, detail="Autenticação necessária")
         return Principal(issuer=local_identity.LOCAL_ISSUER,
                          subject=entry["id"], expires_at=entry["expires_at"])
     if settings.AUTH_MODE != "oidc":
-        raise HTTPException(status_code=503, detail="Authentication mode is invalid")
+        raise HTTPException(status_code=503, detail="O modo de autenticação é inválido")
     issuer, audience, keys = settings.OIDC_ISSUER, settings.OIDC_AUDIENCE, settings.OIDC_JWKS_URL
     if not issuer or not audience or not keys:
-        raise HTTPException(status_code=503, detail="Authentication is not configured")
+        raise HTTPException(status_code=503, detail="A autenticação não está configurada")
     try:
         return verify_access_token(request.headers.get("Authorization"), issuer=issuer,
                                   audience=audience,
                                   signing_key_resolver=_trusted_key_resolver(issuer, audience, keys))
     except IdentityNotConfigured:
-        raise HTTPException(status_code=503, detail="Authentication is not configured") from None
+        raise HTTPException(status_code=503, detail="A autenticação não está configurada") from None
     except AuthenticationRejected:
-        raise HTTPException(status_code=401, detail="Authentication required",
+        raise HTTPException(status_code=401, detail="Autenticação necessária",
                             headers={"WWW-Authenticate": "Bearer"}) from None
 
 
@@ -187,7 +187,7 @@ def _local_auth_configuration_valid():
 
 def _local_only():
     if settings.AUTH_MODE != "local":
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Não encontrado")
 
 
 def _issue_cookie(response: Response, token: str):
@@ -209,14 +209,14 @@ async def local_bootstrap_status():
 async def local_bootstrap(body: LocalBootstrapRequest, response: Response):
     _local_only()
     if local_identity.has_bootstrapped():
-        raise HTTPException(status_code=409, detail="Initial setup is already complete")
+        raise HTTPException(status_code=409, detail="A configuração inicial já foi concluída")
     try:
         token, user = local_identity.bootstrap_first_admin(
             body.email, body.password, body.bootstrap_token,
             token_hash=settings.LOCAL_BOOTSTRAP_TOKEN_SHA256,
             expires_at=settings.LOCAL_BOOTSTRAP_EXPIRES_AT)
     except (local_identity.LoginRejected, ValueError):
-        raise HTTPException(status_code=403, detail="Initial setup is unavailable or invalid") from None
+        raise HTTPException(status_code=403, detail="A configuração inicial está indisponível ou é inválida") from None
     _issue_cookie(response, token)
     return {"user": user, "status": "administrator_created"}
 
@@ -226,7 +226,7 @@ def _require_local_admin(principal: Principal):
     if principal.issuer != local_identity.LOCAL_ISSUER or (
         local_identity.user_role(principal.subject) != "admin"
     ):
-        raise HTTPException(status_code=403, detail="Administrator access required")
+        raise HTTPException(status_code=403, detail="Acesso de administrador necessário")
 
 
 @app.get("/api/admin/operations/summary")
@@ -266,9 +266,9 @@ async def backup_run(principal: Principal = Depends(current_principal)):
     try:
         return await backup_operations.run_backup()
     except RuntimeError:
-        raise HTTPException(status_code=409, detail="Backup is unavailable or running") from None
+        raise HTTPException(status_code=409, detail="O backup está indisponível ou em execução") from None
     except Exception:
-        raise HTTPException(status_code=503, detail="Backup failed; inspect restricted status") from None
+        raise HTTPException(status_code=503, detail="O backup falhou; consulte o status restrito") from None
 
 
 @app.post("/api/admin/backups/verify")
@@ -277,20 +277,20 @@ async def backup_verify(principal: Principal = Depends(current_principal)):
     try:
         return await backup_operations.verify_latest_offsite()
     except RuntimeError:
-        raise HTTPException(status_code=409, detail="No backup is ready for verification") from None
+        raise HTTPException(status_code=409, detail="Nenhum backup está pronto para verificação") from None
     except Exception:
-        raise HTTPException(status_code=503, detail="Restore verification failed") from None
+        raise HTTPException(status_code=503, detail="A verificação da restauração falhou") from None
 
 
 @app.get("/api/admin/users")
 async def local_admin_users(principal: Principal = Depends(current_principal)):
     _local_only()
     if principal.issuer != local_identity.LOCAL_ISSUER:
-        raise HTTPException(status_code=403, detail="Administrator access required")
+        raise HTTPException(status_code=403, detail="Acesso de administrador necessário")
     try:
         users = local_identity.list_users_for_admin(principal.subject)
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Administrator access required") from None
+        raise HTTPException(status_code=403, detail="Acesso de administrador necessário") from None
     return {"users": users}
 
 
@@ -302,9 +302,9 @@ async def local_login(body: LocalLoginRequest, response: Response, request: Requ
                          request.client.host if request.client else "unknown")
     except local_identity.LoginRejected as exc:
         if exc.throttled:
-            raise HTTPException(status_code=429, detail="Too many attempts. Try again later.",
+            raise HTTPException(status_code=429, detail="Tentativas em excesso. Tente novamente mais tarde.",
                                 headers={"Retry-After": "900"}) from None
-        raise HTTPException(status_code=401, detail="Invalid email or password") from None
+        raise HTTPException(status_code=401, detail="E-mail ou senha inválidos") from None
     _issue_cookie(response, token)
     return {"user": user}
 
@@ -314,7 +314,7 @@ async def local_me(request: Request):
     _local_only()
     account = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
     if not account:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise HTTPException(status_code=401, detail="Autenticação necessária")
     return {"user": {"id": account["id"], "email": account["email"], "role": account["role"]}}
 
 
@@ -334,7 +334,7 @@ async def local_change_password(body: LocalPasswordChangeRequest,
     _local_only()
     entry = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
     if not entry:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise HTTPException(status_code=401, detail="Autenticação necessária")
     try:
         token = local_identity.change_password(entry["id"], body.current_password,
                                                body.new_password)
@@ -351,15 +351,15 @@ def _get_session(session_id: str, principal: Principal) -> dict:
         except session_store.SessionCheckpointError as exc:
             # Preserve the damaged record for forensic recovery; never expose raw
             # checkpoint content, storage paths or internal traces to the client.
-            raise HTTPException(status_code=503, detail="Saved review checkpoint is unavailable.") from exc
+            raise HTTPException(status_code=503, detail="O ponto de salvamento da revisão está indisponível.") from exc
         if recovered is not None:
             sessions[session_id] = recovered
     if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=404, detail="Sessão não encontrada")
     try:
         require_session_owner(principal, sessions[session_id])
     except AccessDenied:
-        raise HTTPException(status_code=404, detail="Session not found") from None
+        raise HTTPException(status_code=404, detail="Sessão não encontrada") from None
     return sessions[session_id]
 
 
@@ -438,7 +438,7 @@ def _acknowledge_pause(session):
             and not session["engine"]._active_provider_calls):
         session["pause_acknowledged"] = True
         _append_event(session, {"type": "RUN_PAUSED", "timestamp": datetime.now().isoformat(),
-                               "message": "Provider dispatch is paused. Completed findings and pending reviews are retained."})
+                               "message": "O envio ao provedor está pausado. As conclusões concluídas e as revisões pendentes foram mantidas."})
         _checkpoint(session)
 
 
@@ -446,7 +446,7 @@ def _check_control_version(session, expected_version):
     # No await occurs between this guard, the command and its checkpoint.
     current = run_control.synchronize(session)["control_version"]
     if expected_version is not None and expected_version != current:
-        raise HTTPException(status_code=409, detail="Execution state changed; refresh before issuing this command")
+        raise HTTPException(status_code=409, detail="O estado da execução mudou; atualize a página antes de enviar este comando")
 
 
 async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
@@ -492,7 +492,7 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                 break
             except ReanalysisRequested as exc:
                 if session["feedback_rounds"] >= settings.MAX_FEEDBACK_ROUNDS:
-                    raise WorkflowError("Re-analysis limit reached; retained findings require manual review") from exc
+                    raise WorkflowError("Limite de reanálises atingido; as conclusões mantidas exigem revisão manual") from exc
                 session["feedback_rounds"] += 1
                 session["status"] = "running"
                 feedback = str(exc)
@@ -559,16 +559,16 @@ async def ready():
     # cannot read their persisted legal review checkpoints.
     if settings.AUTH_MODE == "local":
         if not _local_auth_configuration_valid():
-            raise HTTPException(status_code=503, detail="Local authentication is not configured")
+            raise HTTPException(status_code=503, detail="A autenticação local não está configurada")
         try:
             with closing(local_identity.connect()) as identity_db:
                 identity_db.execute("SELECT COUNT(*) FROM identity_users").fetchone()
         except Exception:
-            raise HTTPException(status_code=503, detail="Identity storage is unavailable") from None
+            raise HTTPException(status_code=503, detail="O armazenamento de identidades está indisponível") from None
     try:
         session_store.is_ready()
     except Exception:
-        raise HTTPException(status_code=503, detail="Session storage is unavailable") from None
+        raise HTTPException(status_code=503, detail="O armazenamento de sessões está indisponível") from None
     return {"status": "ready"}
 
 
@@ -576,18 +576,18 @@ async def ready():
 async def create_session(request: SessionCreateRequest, principal: Principal = Depends(current_principal)):
     """Create a new debate session with specified configuration."""
     if request.num_rounds > settings.MAX_ROUNDS:
-        raise HTTPException(status_code=422, detail="Requested rounds exceed the configured limit")
+        raise HTTPException(status_code=422, detail="O número de rodadas solicitado excede o limite configurado")
     if request.jurisdiction != "BR":
-        raise HTTPException(status_code=422, detail="Only Brazilian jurisdiction is supported")
+        raise HTTPException(status_code=422, detail="Somente a jurisdição brasileira é suportada")
     if request.provider_mode == "backup":
         if not request.backup_consent:
-            raise HTTPException(status_code=422, detail="Approve transfer to the configured backup provider before starting a new legal review")
+            raise HTTPException(status_code=422, detail="Autorize a transferência ao provedor reserva configurado antes de iniciar uma nova revisão jurídica")
         if not backup_configured():
-            raise HTTPException(status_code=503, detail="Approved backup provider is not configured")
+            raise HTTPException(status_code=503, detail="O provedor reserva autorizado não está configurado")
         if (settings.MAX_REVIEW_ESTIMATED_USD > 0 and
                 (settings.FALLBACK_LLM_INPUT_PRICE_USD_PER_1M <= 0 or
                  settings.FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M <= 0)):
-            raise HTTPException(status_code=503, detail="Backup provider price rates are required by the configured cost ceiling")
+            raise HTTPException(status_code=503, detail="O teto de custo configurado exige os preços do provedor reserva")
     session_id = str(uuid.uuid4())
     engine = DebateEngineV3(
         session_id=session_id,
@@ -620,7 +620,7 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
         hard_cap_usd=settings.MAX_REVIEW_ESTIMATED_USD,
     )
     if not active:
-        raise HTTPException(status_code=503, detail="No specialist workstreams are configured")
+        raise HTTPException(status_code=503, detail="Nenhuma frente de análise especializada está configurada")
 
     sessions[session_id] = {
         "id": session_id,
@@ -664,11 +664,11 @@ async def start_session(session_id: str, document: UploadFile = File(...),
     session = _get_session(session_id, principal)
 
     if session["status"] != "created":
-        raise HTTPException(status_code=400, detail="Session already started")
+        raise HTTPException(status_code=400, detail="A sessão já foi iniciada")
 
     content = await document.read(settings.MAX_UPLOAD_BYTES + 1)
     if len(content) > settings.MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Document exceeds the 10 MB upload limit")
+        raise HTTPException(status_code=413, detail="O documento excede o limite de envio de 10 MB")
 
     try:
         document_text = extract_document_text(document.filename or "", content)
@@ -677,7 +677,7 @@ async def start_session(session_id: str, document: UploadFile = File(...),
 
     # Reading the upload yields; check again before committing the start.
     if session["status"] != "created":
-        raise HTTPException(status_code=409, detail="Session already started")
+        raise HTTPException(status_code=409, detail="A sessão já foi iniciada")
     # Fail before paid-model dispatch when the single-worker execution pool is full.
     # Gate-paused analyses still occupy resources and are counted.
     active = sum(
@@ -687,7 +687,7 @@ async def start_session(session_id: str, document: UploadFile = File(...),
     if active >= settings.MAX_CONCURRENT_ANALYSES:
         raise HTTPException(
             status_code=429,
-            detail="Analysis capacity is full. Try again after an active review finishes.",
+            detail="A capacidade de análise está esgotada. Tente novamente após a conclusão de uma revisão em andamento.",
         )
     session["document_text"] = document_text
     session["document_name"] = document.filename
@@ -716,7 +716,7 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
     """Server-Sent Events stream with cursor-based resume."""
     session = _get_session(session_id, principal)
     if cursor > len(session["events"]):
-        raise HTTPException(status_code=409, detail="Event cursor exceeds session history")
+        raise HTTPException(status_code=409, detail="O cursor de eventos excede o histórico da sessão")
 
     async def generator():
         session = sessions[session_id]
@@ -852,22 +852,22 @@ async def submit_gate_decision(session_id: str, request: GateDecisionRequest, pr
     engine: DebateEngineV3 = session["engine"]
 
     if request.session_id != session_id:
-        raise HTTPException(status_code=409, detail="Decision belongs to another session")
+        raise HTTPException(status_code=409, detail="A decisão pertence a outra sessão")
     if session["status"] != "awaiting_gate":
-        raise HTTPException(status_code=409, detail="Session is not awaiting review")
+        raise HTTPException(status_code=409, detail="A sessão não está aguardando revisão")
     matches = [g for g in engine.get_pending_gates() if g["gate_number"] == request.gate_number
                and (request.gate_id is None or g["gate_id"] == request.gate_id)]
     if len(matches) != 1:
-        raise HTTPException(status_code=409, detail="Review is stale or ambiguous; refresh the pending reviews")
+        raise HTTPException(status_code=409, detail="A revisão está desatualizada ou é ambígua; atualize as revisões pendentes")
     if not request.reasoning.strip():
-        raise HTTPException(status_code=422, detail="Review reasoning is required")
+        raise HTTPException(status_code=422, detail="A fundamentação da revisão é obrigatória")
     if request.decision.value == "request_reanalysis" and session["feedback_rounds"] >= settings.MAX_FEEDBACK_ROUNDS:
-        raise HTTPException(status_code=409, detail="Re-analysis limit reached; review manually or start a new analysis")
+        raise HTTPException(status_code=409, detail="Limite de reanálises atingido; revise manualmente ou inicie uma nova análise")
     if request.decision.value == "override" and request.override_score is None:
-        raise HTTPException(status_code=422, detail="An override score is required")
+        raise HTTPException(status_code=422, detail="É necessário informar a pontuação de substituição")
     if request.override_classification and request.override_score is not None:
         if request.override_classification.value != classification_for(request.override_score):
-            raise HTTPException(status_code=422, detail="Override classification does not match its score")
+            raise HTTPException(status_code=422, detail="A classificação de substituição não corresponde à pontuação")
     gate_id = matches[0]["gate_id"]
     result = engine.submit_gate_decision(
         gate_number=request.gate_number, gate_id=gate_id,
@@ -876,7 +876,7 @@ async def submit_gate_decision(session_id: str, request: GateDecisionRequest, pr
         override_classification=request.override_classification.value if request.override_classification else None,
     )
     if result is None:
-        raise HTTPException(status_code=409, detail="Review already resolved")
+        raise HTTPException(status_code=409, detail="Revisão já resolvida")
     # Keep the model result intact and record the expert adjustment separately.
     if request.decision.value == "override" and engine.master_summaries:
         synthesis = engine.master_summaries[-1]["parsed"]
@@ -919,10 +919,10 @@ async def submit_feedback(session_id: str, request: FeedbackRequest, principal: 
     session = _get_session(session_id, principal)
 
     if session["status"] != "awaiting_feedback" or (session["task"] and not session["task"].done()):
-        raise HTTPException(status_code=400, detail="Session is not awaiting feedback")
+        raise HTTPException(status_code=400, detail="A sessão não está aguardando comentários")
 
     if session["feedback_rounds"] >= settings.MAX_FEEDBACK_ROUNDS:
-        raise HTTPException(status_code=409, detail="Re-analysis limit reached")
+        raise HTTPException(status_code=409, detail="Limite de reanálises atingido")
     session["feedback_rounds"] += 1
     session["status"] = "running"
     session["error"] = None
@@ -934,7 +934,7 @@ async def submit_feedback(session_id: str, request: FeedbackRequest, principal: 
     return {
         "status": "feedback_received",
         "session_id": session_id,
-        "message": "Feedback routed to appropriate cluster. Re-analysis in progress.",
+        "message": "Comentário encaminhado ao grupo competente. Reanálise em andamento.",
     }
 
 
@@ -945,7 +945,7 @@ def _finish_cancel(session):
     session["error"] = None
     session.get("cancellation", {}).update(state="confirmed")
     _append_event(session, {"type": "CANCELLED",
-                            "message": "Orchestration stopped. An in-flight provider call may still finish.",
+                            "message": "Orquestração interrompida. Uma chamada ao provedor já em curso ainda pode ser concluída.",
                             "timestamp": datetime.now().isoformat()})
     _checkpoint(session)
 
@@ -957,14 +957,14 @@ async def pause_dispatch(session_id: str, principal: Principal = Depends(current
     session = _get_session(session_id, principal)
     _check_control_version(session, expected_version)
     if session["status"] != "running":
-        raise HTTPException(status_code=409, detail="Only an actively running review can pause dispatch")
+        raise HTTPException(status_code=409, detail="Somente uma revisão em andamento pode pausar o envio")
     if session.get("run_control") == "pause_requested":
         return run_control.response(session)
     session["run_control"] = "pause_requested"
     session["pause_acknowledged"] = False
     session["engine"]._dispatch_allowed.clear()
     _append_event(session, {"type": "RUN_PAUSE_REQUESTED", "timestamp": datetime.now().isoformat(),
-                            "message": "New AI requests paused at the next safe dispatch boundary. An in-flight request may finish."})
+                            "message": "Novas requisições à IA serão pausadas no próximo ponto seguro de envio. Uma requisição em curso ainda pode ser concluída."})
     _checkpoint(session)
     _acknowledge_pause(session)
     return run_control.response(session)
@@ -977,9 +977,9 @@ async def resume_dispatch(session_id: str, principal: Principal = Depends(curren
     session = _get_session(session_id, principal)
     _check_control_version(session, expected_version)
     if session["status"] != "running" or session.get("run_control") != "pause_requested":
-        raise HTTPException(status_code=409, detail="The review is not paused or cannot be resumed")
+        raise HTTPException(status_code=409, detail="A revisão não está pausada ou não pode ser retomada")
     if session["engine"]._provider_aborted or session["engine"]._provider_failure:
-        raise HTTPException(status_code=409, detail="Provider failure or cancellation requires a new review")
+        raise HTTPException(status_code=409, detail="Falha ou cancelamento no provedor exige uma nova revisão")
     session["run_control"] = "resuming"
     session["pause_acknowledged"] = False
     _append_event(session, {"type": "RUN_RESUMING", "timestamp": datetime.now().isoformat()})
@@ -987,7 +987,7 @@ async def resume_dispatch(session_id: str, principal: Principal = Depends(curren
     session["run_control"] = "running"
     session["engine"]._dispatch_allowed.set()
     _append_event(session, {"type": "RUN_RESUMED", "timestamp": datetime.now().isoformat(),
-                            "message": "New model dispatch resumed by the session owner."})
+                            "message": "Envio ao modelo retomado pelo titular da sessão."})
     _checkpoint(session)
     return run_control.response(session)
 
@@ -998,21 +998,21 @@ async def cast_human_vote(session_id: str, request: HumanVoteRequest,
     """An authenticated, non-binding vote on a specific model-analysis event."""
     session = _get_session(session_id, principal)
     if session["status"] not in ("running", "awaiting_gate", "awaiting_feedback"):
-        raise HTTPException(status_code=409, detail="This review no longer accepts votes")
+        raise HTTPException(status_code=409, detail="Esta revisão não aceita mais votos")
     events = session["events"]
     if request.event_id > len(events):
-        raise HTTPException(status_code=404, detail="Analysis event not available")
+        raise HTTPException(status_code=404, detail="Evento de análise indisponível")
     target = events[request.event_id - 1]
     if (target.get("event_id") != request.event_id or
             target.get("type") != "AGENT_ANALYSIS_COMPLETE"):
-        raise HTTPException(status_code=422, detail="Select an actual completed agent analysis to vote on")
+        raise HTTPException(status_code=422, detail="Selecione uma análise de agente efetivamente concluída para votar")
     if request.decision != "agree" and not request.reasoning.strip():
-        raise HTTPException(status_code=422, detail="Provide reasoning when disagreeing or asking for evidence")
+        raise HTTPException(status_code=422, detail="Apresente a fundamentação ao discordar ou ao solicitar provas")
     votes = session.setdefault("human_votes", [])
     if any(v["event_id"] == request.event_id and v["reviewer"] == principal.subject for v in votes):
-        raise HTTPException(status_code=409, detail="A vote on this analysis is already recorded")
+        raise HTTPException(status_code=409, detail="Já existe um voto registrado para esta análise")
     if len(votes) >= 100:
-        raise HTTPException(status_code=429, detail="Human voting limit reached")
+        raise HTTPException(status_code=429, detail="Limite de votos humanos atingido")
     record = {
         "event_id": request.event_id, "reviewer": principal.subject,
         "decision": request.decision, "reasoning": request.reasoning.strip(),
@@ -1037,7 +1037,7 @@ async def cancel_session(session_id: str, principal: Principal = Depends(current
         return {"status": session["status"], **run_control.response(session)}
     _check_control_version(session, expected_version)
     if session["status"] not in ("created", "running", "awaiting_gate"):
-        raise HTTPException(status_code=409, detail="This review cannot be cancelled in its current state")
+        raise HTTPException(status_code=409, detail="Esta revisão não pode ser cancelada no estado atual")
     session["engine"]._provider_aborted = True
     session["engine"]._dispatch_allowed.set()  # Wake paused queue so cancellation drains.
     session["run_control"] = "cancelled"
@@ -1049,7 +1049,7 @@ async def cancel_session(session_id: str, principal: Principal = Depends(current
         "state": "requested",
     }
     _append_event(session, {"type": "CANCEL_REQUESTED",
-                            "message": "Stopping new model and tool dispatch",
+                            "message": "Interrompendo novos envios ao modelo e às ferramentas",
                             "timestamp": datetime.now().isoformat()})
     _checkpoint(session)
     session["cancellation"]["state"] = "stopping"
@@ -1074,7 +1074,7 @@ async def accept_result(session_id: str, principal: Principal = Depends(current_
             or session["engine"].gate_evaluator.has_pending_gates()
             or not session["engine"].master_summaries
             or (session["task"] and not session["task"].done())):
-        raise HTTPException(status_code=409, detail="Finish the analysis and all required reviews before acceptance")
+        raise HTTPException(status_code=409, detail="Conclua a análise e todas as revisões obrigatórias antes do aceite")
     session["status"] = "completed"
     # Only this authorized acceptance produces AG-UI RUN_FINISHED. Intermediate
     # DEBATE_COMPLETE still awaits human review and does not finish the run.

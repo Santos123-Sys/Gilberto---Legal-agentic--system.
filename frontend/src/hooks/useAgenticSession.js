@@ -129,7 +129,7 @@ export function useAgenticSession() {
       setStatus('preview')
       return data.session_id
     } catch (err) {
-      setError(`Failed to create session: ${err.message}`)
+      setError(`Falha ao criar a sessão: ${err.message}`)
       setStatus('error')
       return null
     }
@@ -137,12 +137,12 @@ export function useAgenticSession() {
 
   const confirmAndStart = useCallback(async (selectedFile = documentFile) => {
     if (!sessionId) {
-      setError('Create an analysis session before starting the debate.')
+      setError('Crie uma sessão de análise antes de iniciar o debate.')
       setStatus('error')
       return false
     }
     if (!(selectedFile instanceof Blob)) {
-      setError('Select a contract file before starting the debate.')
+      setError('Selecione o arquivo do contrato antes de iniciar o debate.')
       setStatus('error')
       return false
     }
@@ -169,7 +169,7 @@ export function useAgenticSession() {
       connectStreamRef.current?.(sessionId, 0)
       return true
     } catch (err) {
-      setError(`Failed to start: ${err.message}`)
+      setError(`Falha ao iniciar: ${err.message}`)
       setStatus('error')
       return false
     }
@@ -206,7 +206,7 @@ export function useAgenticSession() {
             es.close()
             gapDetectedRef.current = true
             setConnectionState('disconnected')
-            setError('Progress history is incomplete. Reconnect to synchronize with the server.')
+            setError('O histórico de progresso está incompleto. Reconecte-se para sincronizar com o servidor.')
             return
           }
           if (event.event_id <= cursorRef.current) return
@@ -437,7 +437,7 @@ export function useAgenticSession() {
 
       return true
     } catch (err) {
-      setError(`Gate decision failed: ${err.message}`)
+      setError(`Falha ao registrar a decisão da etapa: ${err.message}`)
       return false
     }
   }, [sessionId])
@@ -464,7 +464,7 @@ export function useAgenticSession() {
       connectStream(sessionId, cursorRef.current)
       return true
     } catch (err) {
-      setError(`Feedback failed: ${err.message}`)
+      setError(`Falha ao enviar os comentários: ${err.message}`)
       return false
     }
   }, [sessionId, connectStream])
@@ -481,7 +481,7 @@ export function useAgenticSession() {
       setError(null)
       setStatus('completed')
     } catch (err) {
-      setError(`Accept failed: ${err.message}`)
+      setError(`Falha ao registrar o aceite: ${err.message}`)
     }
   }, [sessionId])
 
@@ -500,7 +500,7 @@ export function useAgenticSession() {
       setError(null)
       return true
     } catch (error) {
-      setError(`Dispatch control failed: ${error.message}`)
+      setError(`Falha no controle de envio: ${error.message}`)
       return false
     }
   }, [sessionId])
@@ -522,7 +522,7 @@ export function useAgenticSession() {
       setError(null)
       return true
     } catch (error) {
-      setError(`Human vote was not recorded: ${error.message}`)
+      setError(`O voto humano não foi registrado: ${error.message}`)
       return false
     }
   }, [sessionId])
@@ -540,7 +540,7 @@ export function useAgenticSession() {
       setError(null)
       return true
     } catch (error) {
-      setError(`Cancellation failed: ${error.message}`)
+      setError(`Falha ao cancelar: ${error.message}`)
       return false
     }
   }, [sessionId])
