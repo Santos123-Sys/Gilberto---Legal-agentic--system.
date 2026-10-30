@@ -31,7 +31,7 @@ class WorkspaceEventTests(unittest.TestCase):
         self.assertEqual([e["metadata"]["gilbertoEventId"] for e in first], [1, 2, 3, 4, 5])
 
     def test_feedback_and_stop_are_not_successful_legal_acceptance(self):
-        for kind in ("DEBATE_COMPLETE", "CANCELLED", "GATE_TRIGGERED", "ERROR"):
+        for kind in ("DEBATE_COMPLETE", "CANCELLED", "GATE_TRIGGERED"):
             self.assertEqual(project_event(self.event(type=kind))["type"], "CUSTOM")
 
     def test_invalid_events_are_rejected_without_invented_identity(self):

@@ -771,6 +771,21 @@ async def get_status(session_id: str, principal: Principal = Depends(current_pri
     }
 
 
+@app.get("/api/sessions/{session_id}/ag-ui/capabilities")
+async def agui_capabilities(session_id: str, principal: Principal = Depends(current_principal)):
+    """Authorized declaration; read-only SSE projection, not RunAgent POST."""
+    _get_session(session_id, principal)
+    return {
+        "protocol_version": "1.0", "mode": "read_only_journal_projection",
+        "stream_protocol": "ag-ui", "supports_run_agent_post": False,
+        "native_event_types": ["RUN_STARTED", "RUN_FINISHED", "RUN_ERROR",
+                               "STEP_STARTED", "STEP_FINISHED", "STATE_SNAPSHOT"],
+        "custom_domain_events": True, "tool_events": "not_emitted_without_real_tool_contracts",
+        "journal_cursor_authoritative": True,
+        "run_finished_only_after_authorized_final_acceptance": True,
+    }
+
+
 @app.get("/api/sessions/{session_id}/results")
 async def get_results(session_id: str, principal: Principal = Depends(current_principal)):
     """Get full analysis results."""
@@ -1041,5 +1056,8 @@ async def accept_result(session_id: str, principal: Principal = Depends(current_
             or (session["task"] and not session["task"].done())):
         raise HTTPException(status_code=409, detail="Finish the analysis and all required reviews before acceptance")
     session["status"] = "completed"
+    # Only this authorized acceptance produces AG-UI RUN_FINISHED. Intermediate
+    # DEBATE_COMPLETE still awaits human review and does not finish the run.
+    _append_event(session, {"type": "FINAL_ACCEPTED", "timestamp": datetime.now().isoformat()})
     return {"status": "completed", "session_id": session_id}
 
