@@ -48,6 +48,48 @@ class ReanalysisRequested(Exception):
     """A recorded human decision requests a fresh, bounded analysis revision."""
 
 
+# Only known diagnostic codes may reach client-visible events. Never copy
+# provider bodies, model output, exception messages or client document text.
+_PROVIDER_CODES = frozenset({
+    "missing_key", "timeout", "connection", "invalid_request",
+    "authentication", "billing", "permission", "invalid_endpoint",
+    "upstream_timeout", "request_conflict", "rate_limit",
+    "unexpected_redirect", "provider_rejected_request",
+    "provider_unavailable", "unexpected_http_status", "truncated",
+    "invalid_response",
+})
+
+
+def safe_workstream_failure(exc):
+    """Classify a workstream exception without disclosing confidential data."""
+    if isinstance(exc, ProviderError):
+        code = exc.code if exc.code in _PROVIDER_CODES else "provider_error"
+        status = exc.http_status
+        return {
+            "category": "provider",
+            "code": code,
+            "http_status": status if type(status) is int and 100 <= status <= 599 else None,
+        }
+    if isinstance(exc, asyncio.CancelledError):
+        return {"category": "execution", "code": "cancelled"}
+    if isinstance(exc, WorkflowError):
+        message = str(exc)
+        if message.startswith("AI provider timed out"):
+            code = "provider_timeout"
+        elif message.startswith("Model-call budget reached"):
+            code = "model_call_budget"
+        elif message.startswith("Document context exceeds"):
+            code = "context_budget"
+        elif message.startswith("Provider execution stopped after a timeout"):
+            code = "prior_provider_timeout"
+        else:
+            code = "workflow_interrupted"
+        return {"category": "execution", "code": code}
+    if isinstance(exc, (ValueError, TypeError)):
+        return {"category": "model_output", "code": "invalid_model_output"}
+    return {"category": "execution", "code": "unexpected_failure"}
+
+
 from agents.cluster_definitions import (
     CLUSTERS,
     DEVILS_ADVOCATE,
@@ -963,13 +1005,29 @@ class DebateEngineV3:
             cluster_ids.append("strategy")
 
         failed = []
+        pending_summaries = {}
         for cid, result in zip(cluster_ids, results):
             if isinstance(result, BaseException):
-                failed.append(cid)
+                diagnostic = safe_workstream_failure(result)
+                failed.append({"cluster": cid, **diagnostic})
+                await self._emit(self._evt(
+                    "CLUSTER_FAILED", cluster=cid, round=new_round, **diagnostic
+                ))
             else:
-                self.cluster_summaries[cid] = result
+                pending_summaries[cid] = result
         if failed:
-            raise WorkflowError("Re-analysis incomplete: " + ", ".join(failed))
+            # The previous accepted round remains intact. Never merge a partial
+            # re-analysis into the summary used by the final legal synthesis.
+            self.execution_metrics["reanalysis_failures"] = failed
+            codes = ", ".join(
+                item["cluster"] + " (" + item["code"] + ")" for item in failed
+            )
+            raise WorkflowError(
+                "Re-analysis incomplete: " + codes +
+                ". Earlier findings are retained but are not a verified final analysis. "
+                "Check the provider or model-output diagnostic before a new review."
+            )
+        self.cluster_summaries.update(pending_summaries)
 
         # Re-run DA and Master
         await self._run_devils_advocate(document_text, new_round)
