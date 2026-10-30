@@ -595,6 +595,7 @@ async def create_session(request: SessionCreateRequest, principal: Principal = D
         num_rounds=request.num_rounds,
         workflow_type=request.workflow_type.value if hasattr(request.workflow_type, 'value') else str(request.workflow_type),
         provider_mode=request.provider_mode,
+        backup_consent=request.backup_consent,
     )
 
     engine.review_depth = request.review_depth
