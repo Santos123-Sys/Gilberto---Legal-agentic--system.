@@ -189,7 +189,7 @@ export function SwarmWorkspace({
       <section aria-label="Fluxo dos agentes em tempo real" className="min-w-0 rounded-xl border border-slate-700 bg-[#0b1728] p-4 sm:p-5">
         <div className="flex items-start justify-between gap-2">
           <div><h3 className="font-semibold tracking-wide text-slate-100 flex items-center gap-2"><Network size={17} /> Equipe de agentes / fluxo registrado</h3>
-            <p className="text-xs text-slate-400 mt-1">{configured} especialistas configurados · {roster.length} grupos configurados · {completed} análises registradas na rodada atual</p>
+            <p className="text-xs text-slate-400 mt-1">{configured} {configured === 1 ? 'especialista configurado' : 'especialistas configurados'} · {roster.length} {roster.length === 1 ? 'grupo configurado' : 'grupos configurados'} · {completed} {completed === 1 ? 'análise registrada' : 'análises registradas'} na rodada atual</p>
           </div>
           <span className="text-xs text-blue-300 shrink-0">Rodada {currentRound ?? '—'}</span>
         </div>

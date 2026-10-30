@@ -36,7 +36,7 @@ async function setup(page, acceptStatus = 200, focused = false) {
   await page.locator('#doc-upload').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic contract for UI testing.') })
   if (focused) await page.getByLabel('Profundidade da revisão', { exact: true }).selectOption('focused')
   await page.getByRole('button', { name: 'Iniciar debate' }).click()
-  await expect(page.getByText('4 specialists · requests are staggered', { exact: false })).toBeVisible()
+  await expect(page.getByText('4 especialistas · requisições escalonadas', { exact: false })).toBeVisible()
   await expect(page.getByText('Number of Agents', { exact: false })).toHaveCount(0)
   if (focused) await expect(page.getByText('focada · 4 chamadas iniciais ao provedor', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Prosseguir com a análise' }).click()
@@ -122,7 +122,7 @@ test('oversized file is rejected before session creation', async ({ page }) => {
   await page.locator('#doc-upload').setInputFiles({
     name: 'large.txt', mimeType: 'text/plain', buffer: Buffer.alloc(10 * 1024 * 1024 + 1, 'a'),
   })
-  await expect(page.getByRole('alert')).toContainText('10 MB upload limit')
+  await expect(page.getByRole('alert')).toContainText('limite de envio de 10 MB')
   await expect(page.getByRole('button', { name: 'Iniciar debate' })).toBeDisabled()
   expect(created).toBe(0)
 })

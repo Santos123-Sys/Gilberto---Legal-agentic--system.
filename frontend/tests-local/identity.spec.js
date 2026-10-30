@@ -95,7 +95,7 @@ test('requires local credentials before legal workspace, creates session and sig
     buffer: Buffer.from('Only synthetic, nonconfidential legal document'),
   })
   await page.getByRole('button', { name: 'Iniciar debate' }).click()
-  await expect(page.getByText('4 specialists · requests are staggered', { exact: false })).toBeVisible()
+  await expect(page.getByText('4 especialistas · requisições escalonadas', { exact: false })).toBeVisible()
   expect(calls.some(c => c.path === '/api/sessions' && c.method === 'POST')).toBe(true)
   await page.getByRole('button', { name: 'Sair' }).click()
   await expect(page.locator('#doc-upload')).toHaveCount(0)
