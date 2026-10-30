@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { ReviewHistoryInspector } from './ReviewHistoryInspector'
 import { Activity, AlertCircle, BookOpen, Clock3, FileSearch, Network, Receipt, Scale, Vote } from 'lucide-react'
 
 // This is a projection of the authenticated session, never a second workflow state.
@@ -30,9 +31,18 @@ function Identity({ agent, label }) {
   const hue = parseInt(hash.slice(0, 4), 16) % 360
   const initials = (agent?.display_name || agent?.role || '?')
     .split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()
-  return <span aria-hidden="true" className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm border border-white/20"
-    style={{ background: 'linear-gradient(140deg, hsl(' + hue + ' 42% 30%), hsl(' + ((hue + 47) % 360) + ' 54% 20%))', color: '#f8fafc' }}
-    title={label || agent?.role}>{initials}</span>
+  const seed = parseInt(hash.slice(4, 8), 16) || 0
+  const glyph = seed % 4
+  return <svg aria-hidden="true" viewBox="0 0 48 48" className="shrink-0 w-9 h-9 rounded-xl border border-white/20"
+    style={{ background: 'hsl(' + hue + ' 45% 23%)' }}>
+    <circle cx="24" cy="24" r="19" fill="none" stroke="hsl(45 70% 75%)" strokeOpacity=".55" strokeWidth="1.3" />
+    <circle cx="24" cy="24" r={6 + seed % 4} fill="hsl(45 70% 78%)" fillOpacity=".25" />
+    {glyph === 0 && <path d="M24 7 L40 34 L8 34 Z" fill="none" stroke="white" strokeWidth="2" />}
+    {glyph === 1 && <path d="M24 6 L42 24 L24 42 L6 24 Z" fill="none" stroke="white" strokeWidth="2" />}
+    {glyph === 2 && <><path d="M8 24 H40 M24 8 V40" stroke="white" strokeWidth="2" /><circle cx="24" cy="24" r="12" stroke="white" fill="none" strokeWidth="1.5" /></>}
+    {glyph === 3 && <path d="M9 14 L39 14 L32 36 L16 36 Z" fill="none" stroke="white" strokeWidth="2" />}
+    <text x="24" y="28" fill="white" fontSize="9" fontWeight="700" textAnchor="middle">{initials.slice(0, 2)}</text>
+  </svg>
 }
 
 function DataText({ value, fallback = 'Not recorded' }) {
@@ -110,6 +120,11 @@ function InspectPanel({ tab, agent, events, current, metrics, status, sessionId,
         Event #{e.event_id}: {e.decision} · targets agent event #{e.target_event_id}
       </p>)}
     </>}
+    {tab === 'history' && <ReviewHistoryInspector events={events} />}
+    {tab === 'tools' && <div className="space-y-2 text-sm">
+      <p className="text-amber-300">No independently identified external tool-call lifecycle is exposed by the current CrewAI event journal.</p>
+      <p className="text-slate-400">Model dispatches and source assertions are not represented as verified external tool invocations. Tool calls will appear only after the backend emits authorized tool IDs, names and statuses.</p>
+    </div>}
     {tab === 'costs' && <>
       <p className="text-xs text-slate-400">Operational counters originate from the backend. No billing or costs are inferred from the design reference.</p>
       <dl>
@@ -131,6 +146,8 @@ const TABS = [
   { id: 'evidence', label: 'Evidence', icon: BookOpen },
   { id: 'votes', label: 'Votes', icon: Vote },
   { id: 'costs', label: 'Costs', icon: Receipt },
+  { id: 'history', label: 'History', icon: BookOpen },
+  { id: 'tools', label: 'Tools', icon: FileSearch },
 ]
 
 export function SwarmWorkspace({
@@ -176,6 +193,16 @@ export function SwarmWorkspace({
           </div>
           <span className="text-xs text-blue-300 shrink-0">Round {currentRound ?? '—'}</span>
         </div>
+        <figure aria-label="Actual execution dependencies" className="mt-4 rounded-lg bg-slate-900/50 p-3 text-xs text-slate-300">
+          <div className="flex flex-wrap gap-2 items-center justify-center" aria-hidden="true">
+            {['Specialists', 'Peer voting', 'Cluster managers', 'Devil’s Advocate', 'Master synthesis', 'Human review'].map((stage, i) =>
+              <span key={stage} className="flex items-center gap-2">
+                {i > 0 && <span className="text-blue-400">→</span>}
+                <span className="rounded-md border border-slate-600 p-1.5">{stage}</span>
+              </span>)}
+          </div>
+          <figcaption className="mt-2">Dependencies follow these stages. Cluster work may overlap, but specialists and peer voting within each cluster execute sequentially. The master node is displayed above the teams for navigation, not as an indication that synthesis executes first.</figcaption>
+        </figure>
         {coordination.orchestrator && <div className="max-w-sm mx-auto mt-5">
           <button type="button" onClick={() => selectAgent(coordination.orchestrator.id)}
             aria-pressed={agent?.id === coordination.orchestrator.id}
