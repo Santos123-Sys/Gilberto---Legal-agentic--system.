@@ -74,4 +74,4 @@ class WorkspaceRouteTests(unittest.IsolatedAsyncioTestCase):
         for path, method in (("/api/admin/observability/status", "get"),
                              ("/api/admin/observability/probe", "post")):
             response = await getattr(self.client, method)(path)
-            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.status_code, 404)  # Hide local-admin API in OIDC mode.
