@@ -74,5 +74,35 @@ class AgentCapabilityPolicyTests(unittest.TestCase):
                                 round_num=2)["outcome"], "DENY")
 
 
+
+class DispatchAuthorizationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_model_dispatch_rejects_impostor_before_cost_and_network(self):
+        from unittest.mock import patch
+        from engines.debate_engine_v3 import DebateEngineV3, WorkflowError
+        engine = DebateEngineV3("synthetic-permission", 1, 1, "contract_review")
+        engine.current_round = 1
+        with patch("engines.debate_engine_v3._run_crew") as provider:
+            with self.assertRaisesRegex(WorkflowError, "UNKNOWN_OR_CROSS_CLUSTER_AGENT"):
+                await engine._run_agent({"role": "unrostered", "goal": "unknown"},
+                                        "synthetic", cluster_id="foundation")
+            provider.assert_not_called()
+        self.assertEqual(engine.execution_metrics["model_calls"], 0)
+        event = engine._event_queue.get_nowait()
+        self.assertEqual(event["type"], "AGENT_POLICY_DENIED")
+        self.assertEqual(event["decision"], "DENY")
+
+    async def test_backup_is_blocked_without_transfer_consent(self):
+        from unittest.mock import patch
+        from engines.debate_engine_v3 import DebateEngineV3, WorkflowError
+        engine = DebateEngineV3("synthetic-backup", 1, 1, "contract_review",
+                                provider_mode="backup")
+        engine.current_round = 1
+        with patch("engines.debate_engine_v3._run_crew") as provider:
+            with self.assertRaisesRegex(WorkflowError, "EXPLICIT_BACKUP_TRANSFER_CONSENT_REQUIRED"):
+                await engine._run_agent(CLUSTERS["foundation"]["agents"][0],
+                                        "synthetic", cluster_id="foundation")
+            provider.assert_not_called()
+        self.assertEqual(engine.execution_metrics["model_calls"], 0)
+
 if __name__ == "__main__":
     unittest.main()
