@@ -74,7 +74,7 @@ test('uses backend roster only and inspects grounded current agent findings', as
   await expect(panel.getByText('1 configured specialists')).toBeVisible()
   await expect(panel.getByText('Foundation & Document Integrity')).toBeVisible()
   await expect(panel.getByText('Compliance', { exact: true })).toHaveCount(0)
-  await expect(panel.getByText('Devil’s Advocate')).toBeVisible()
+  await expect(panel.getByRole('button', { name: /Devil’s Advocate/ })).toBeVisible()
 
   await emit(page, [
     { event_id: 1, type: 'ROUND_START', round: 1, execution_state: 'RUNNING' },
@@ -124,4 +124,37 @@ test('inspector remains navigable on narrow screens without fictitious agents', 
   await page.getByRole('tab', { name: 'Events' }).click()
   await expect(page.getByText('No backend events recorded.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Review results' })).toHaveAttribute('href', '#gilberto-review-desk')
+})
+
+
+test('shows source-level contract verification without certifying legal authority or hiding dissent', async ({ page }) => {
+  await start(page)
+  await emit(page, [
+    { event_id: 1, type: 'ROUND_START', round: 1 },
+    { event_id: 2, type: 'AGENT_ANALYSIS_COMPLETE', agent: 'Brazilian Contract Classifier',
+      cluster: 'foundation', round: 1, revision: 0, parsed: {
+        score: 7, reasoning: 'Synthetic disputed clause',
+        key_findings: [{ item: 'Notice is due', status: 'WARNING',
+          evidence: 'Synthetic contract 12.2', legal_basis: 'Brazilian Civil Code claim' }],
+        evidence_audit: { source_verification_status: 'NOT_VERIFIED',
+          findings: [{ index: 0, status: 'quoted_contract_text_present_legal_basis_unverified',
+            contract_quote: { status: 'present_in_supplied_document', document_sha256: 'synthetic-sha' },
+            legal_authority: { status: 'unverified_official_text' } }] },
+      } },
+    { event_id: 3, type: 'AGENT_VOTE_CAST', voter: 'Brazilian Contract Classifier',
+      cluster: 'foundation', round: 1, revision: 0,
+      scores: { scores: { 'Peer 2': 8 }, rationale: 'Disagree on notice.' } },
+    { event_id: 4, type: 'CLUSTER_COMPLETE', cluster: 'foundation',
+      cluster_name: 'Foundation', round: 1, revision: 0,
+      summary: { aggregated_score: 7, classification: 'Relevante', dissent_notes: 'Manager flags source dispute' } },
+  ])
+  await page.getByRole('tab', { name: 'History' }).click()
+  const history = page.getByRole('region', { name: 'Historical legal findings and dissent' })
+  await expect(history.getByText('Notice is due')).toBeVisible()
+  await expect(history.getByText('Synthetic contract 12.2')).toBeVisible()
+  await expect(history.getByText('present_in_supplied_document')).toBeVisible()
+  await expect(history.getByText('Legal applicability and source text: NOT INDEPENDENTLY VERIFIED')).toBeVisible()
+  await expect(history.getByText('Manager flags source dispute')).toBeVisible()
+  await page.getByRole('tab', { name: 'Tools' }).click()
+  await expect(page.getByText('No independently identified external tool-call lifecycle', { exact: false })).toBeVisible()
 })
