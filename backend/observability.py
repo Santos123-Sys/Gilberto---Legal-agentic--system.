@@ -14,6 +14,7 @@ import os
 import queue
 import threading
 import time
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 EVENT_TYPES = frozenset((
@@ -25,7 +26,7 @@ EVENT_TYPES = frozenset((
     "GATE_TRIGGERED", "GATE_RESOLVED", "ALL_GATES_RESOLVED", "PROVIDER_WAIT",
     "FEEDBACK_RECEIVED", "FEEDBACK_ROUTING_START", "ERROR", "CANCELLED",
     "RUN_PAUSE_REQUESTED", "RUN_PAUSED", "RUN_RESUMED", "CANCEL_REQUESTED", "RUN_STOPPING",
-    "RUN_PREPARING", "RUN_STARTED", "HUMAN_VOTE_RECORDED", "RUN_RESUMING",
+    "RUN_PREPARING", "RUN_STARTED", "FINAL_ACCEPTED", "HUMAN_VOTE_RECORDED", "RUN_RESUMING",
 ))
 NUMERIC_FIELDS = frozenset(("event_id", "round", "latency_ms", "wait_seconds",
                             "execution_ms", "queue_wait_ms", "model_calls",
@@ -56,7 +57,17 @@ def metadata_span(session_id: str, event: dict, secret: str, now_ns=None) -> dic
     for key in ("agent_id", "cluster", "run_id"):
         if isinstance(event.get(key), str):
             attrs["gilberto." + key] = correlation_id(secret, key + ":" + event[key])
-    stamp = str(time.time_ns() if now_ns is None else now_ns)
+    # Use the actual journal timestamp, never the exporter dispatch time, when
+    # the event supplies a valid timestamp; measured durations are not inferred.
+    if now_ns is None:
+        try:
+            recorded = datetime.fromisoformat(str(event["timestamp"]).replace("Z", "+00:00"))
+            if recorded.tzinfo is None:
+                recorded = recorded.replace(tzinfo=timezone.utc)
+            now_ns = int(recorded.timestamp() * 1_000_000_000)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            now_ns = time.time_ns()
+    stamp = str(now_ns)
     attributes = []
     for key, value in attrs.items():
         encoded = ({"intValue": str(value)} if type(value) is int else
@@ -68,6 +79,14 @@ def metadata_span(session_id: str, event: dict, secret: str, now_ns=None) -> dic
             "startTimeUnixNano": stamp, "endTimeUnixNano": stamp,
             "attributes": attributes,
             "status": {"code": 2 if kind == "ERROR" else 0}}
+
+
+def _otlp_payload(span):
+    return {"resourceSpans": [{
+        "resource": {"attributes": [{"key": "service.name",
+                                    "value": {"stringValue": "gilberto"}}]},
+        "scopeSpans": [{"scope": {"name": "gilberto.metadata", "version": "1"},
+                        "spans": [span]}]}]}
 
 
 class MetadataTelemetry:
@@ -112,17 +131,34 @@ class MetadataTelemetry:
             except queue.Empty:
                 continue
             try:
-                self.exporter({"resourceSpans": [{
-                    "resource": {"attributes": [{"key": "service.name",
-                                                  "value": {"stringValue": "gilberto"}}]},
-                    "scopeSpans": [{"scope": {"name": "gilberto.metadata", "version": "1"},
-                                    "spans": [span]}]}]})
+                self.exporter(_otlp_payload(span))
                 self.exported += 1
             except Exception:
                 # No exception strings, headers or response bodies in logs.
                 self.failed += 1
             finally:
                 self.pending.task_done()
+
+    def probe(self):
+        """Explicit administrator diagnostic: synthetic metadata only.
+
+        A successful OTLP response means ingestion accepted the request;
+        it does not verify retention, queryability or production traces.
+        """
+        if not self.enabled or self._stop.is_set():
+            return {"configured": False, "ingestion_accepted": False}
+        import secrets
+        synthetic = "gilberto-probe:" + secrets.token_hex(16)
+        try:
+            span = metadata_span(synthetic, {"type": "ROUND_START", "event_id": 1},
+                                 self.secret)
+            self.exporter(_otlp_payload(span))
+            return {"configured": True, "ingestion_accepted": True,
+                    "verification_scope": "synthetic_otlp_ingestion_only"}
+        except Exception:
+            # Suppress all remote error bodies, headers and accidental PII.
+            return {"configured": True, "ingestion_accepted": False,
+                    "verification_scope": "synthetic_otlp_ingestion_only"}
 
     def close(self):
         self._stop.set()

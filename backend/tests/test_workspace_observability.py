@@ -106,3 +106,38 @@ class WorkspaceObservabilityTests(unittest.TestCase):
                         {"GILBERTO_TELEMETRY_SAMPLE_RATE": "nan"},
                         {"LANGFUSE_SECRET_KEY": ""}):
             self.assertFalse(from_environment({**env, **changes}).enabled)
+
+    def test_synthetic_probe_does_not_export_real_sessions_or_secrets(self):
+        payloads = []
+        telemetry = MetadataTelemetry(enabled=True, secret=KEY, exporter=payloads.append)
+        try:
+            receipt = telemetry.probe()
+            self.assertTrue(receipt["ingestion_accepted"])
+            self.assertEqual(receipt["verification_scope"], "synthetic_otlp_ingestion_only")
+            self.assertEqual(len(payloads), 1)
+            encoded = json.dumps(payloads)
+            for forbidden in ("PRIVATE OUTPUT", "CONFIDENTIAL CONTRACT", "confidential-client", KEY):
+                self.assertNotIn(forbidden, encoded)
+            self.assertEqual(telemetry.exported, 0)  # Probe does not count as production telemetry.
+        finally:
+            telemetry.close()
+
+    def test_disabled_and_failed_probe_fail_closed_without_error_detail(self):
+        disabled = MetadataTelemetry()
+        self.assertEqual(disabled.probe(),
+                         {"configured": False, "ingestion_accepted": False})
+        def rejected(_):
+            raise RuntimeError("private-token-and-contract-content")
+        probe = MetadataTelemetry(enabled=True, secret=KEY, exporter=rejected)
+        receipt = probe.probe()
+        self.assertFalse(receipt["ingestion_accepted"])
+        self.assertNotIn("private-token", str(receipt))
+        probe.close()
+
+    def test_recorded_event_timestamp_not_ingestion_clock(self):
+        from datetime import datetime, timezone
+        event = self.event(timestamp="2026-10-30T08:00:00Z")
+        span = metadata_span("s", event, KEY)
+        expected = int(datetime(2026, 10, 30, 8, tzinfo=timezone.utc).timestamp() * 1_000_000_000)
+        self.assertEqual(span["startTimeUnixNano"], str(expected))
+        self.assertEqual(span["endTimeUnixNano"], str(expected))
