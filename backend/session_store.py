@@ -60,7 +60,8 @@ def load(session_id, engine_factory):
         state = session.pop('engine_state')
         config = session['config']
         engine = engine_factory(session_id, config['num_agents'], config['num_rounds'],
-                                config['workflow_type'], provider_mode=config.get("provider_mode", "primary"))
+                                config['workflow_type'], provider_mode=config.get("provider_mode", "primary"),
+                                backup_consent=config.get("backup_consent") is True)
         engine.review_depth = config.get("review_depth", "full")
         for key in ENGINE_FIELDS:
             if key == '_legal_evidence_audits':

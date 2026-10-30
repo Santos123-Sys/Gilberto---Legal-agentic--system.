@@ -236,7 +236,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.engine.execution_metrics['model_calls'] = settings.MAX_MODEL_CALLS
         with patch('engines.debate_engine_v3._run_crew') as crew:
             with self.assertRaisesRegex(RuntimeError, 'budget'):
-                await self.engine._run_agent({}, 'prompt')
+                await self.engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'prompt', cluster_id='foundation')
             crew.assert_not_called()
 
     async def test_reanalysis_runner_really_executes_revision(self):
@@ -301,10 +301,10 @@ class RunBoundaryTests(unittest.IsolatedAsyncioTestCase):
             return '{}'
         with patch.object(settings, 'LLM_REQUEST_TIMEOUT_SECONDS', 0.001), patch('engines.debate_engine_v3.asyncio.to_thread', side_effect=slow_provider):
             with self.assertRaisesRegex(RuntimeError, 'timed out'):
-                await engine._run_agent({'role': 'test'}, 'small prompt')
+                await engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'small prompt', cluster_id='foundation')
         with patch('engines.debate_engine_v3._run_crew') as crew:
             with self.assertRaisesRegex(RuntimeError, 'stopped'):
-                await engine._run_agent({'role': 'test'}, 'small prompt')
+                await engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'small prompt', cluster_id='foundation')
             crew.assert_not_called()
         self.assertEqual(engine.execution_metrics['model_tasks'][0]['status'], 'timed_out')
 

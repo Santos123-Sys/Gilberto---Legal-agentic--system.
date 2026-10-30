@@ -294,6 +294,67 @@ class LocalIdentityAPITests(unittest.IsolatedAsyncioTestCase):
         denied = await self.client.get(f"/api/sessions/{sid}/results")
         self.assertEqual(denied.status_code, 404)
 
+    def _replace_session_cookie(self, value):
+        self.client.cookies.clear()
+        self.client.cookies.set(local_identity.COOKIE_NAME, value,
+                                domain="gilberto.example.test", path="/")
+
+    async def test_forged_and_tampered_session_cookies_are_rejected(self):
+        # PR-01 mandatory negative test: a session cookie the server never
+        # issued, or a real one altered by a single character, authenticates
+        # nobody and cannot create, read or stream a review.
+        self.assertEqual((await self.login()).status_code, 200)
+        created = await self.client.post("/api/sessions", json={"num_rounds": 1},
+                                         headers=self.origin)
+        self.assertEqual(created.status_code, 200, created.text)
+        sid = created.json()["session_id"]
+        genuine = self.client.cookies.get(local_identity.COOKIE_NAME)
+        self.assertTrue(genuine)
+        tampered = genuine[:-1] + ("A" if genuine[-1] != "A" else "B")
+        for label, value in (
+            ("fabricated", "forged-" + "x" * 40),
+            ("tampered", tampered),
+            ("empty", ""),
+        ):
+            with self.subTest(cookie=label):
+                self._replace_session_cookie(value)
+                self.assertIsNone(local_identity.resolve_session(value))
+                self.assertEqual((await self.client.get("/api/auth/me")).status_code, 401)
+                self.assertEqual((await self.client.post("/api/sessions", json={"num_rounds": 1},
+                                                         headers=self.origin)).status_code, 401)
+                for route in ("status", "results", "stream?cursor=0"):
+                    denied = await self.client.get(f"/api/sessions/{sid}/{route}")
+                    self.assertIn(denied.status_code, (401, 404), route)
+        # The genuine cookie still works, so the rejections above are not an
+        # artefact of a broken fixture.
+        self._replace_session_cookie(genuine)
+        self.assertEqual((await self.client.get("/api/auth/me")).status_code, 200)
+
+    async def test_checkpoint_fields_cannot_grant_administrator_rights(self):
+        # PR-01 mandatory negative test: a legacy or tampered checkpoint that
+        # carries role-like fields must not reconstruct administrator access.
+        # Administrator status is read only from the identity store.
+        self.assertEqual((await self.login()).status_code, 200)
+        created = await self.client.post("/api/sessions", json={"num_rounds": 1},
+                                         headers=self.origin)
+        sid = created.json()["session_id"]
+        session = main.sessions[sid]
+        for target in (session, session["config"]):
+            target.update({"role": "admin", "is_admin": True, "admin": True,
+                           "owner_role": "admin", "permissions": ["admin"]})
+        main.session_store.save(session)
+        main.sessions.clear()
+        reloaded = await self.client.get(f"/api/sessions/{sid}/status")
+        self.assertEqual(reloaded.status_code, 200, reloaded.text)
+        me = await self.client.get("/api/auth/me")
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.json()["user"]["role"], "user")
+        self.assertEqual(local_identity.user_role(me.json()["user"]["id"]), "user")
+        self.assertEqual((await self.client.get("/api/admin/users")).status_code, 403)
+        self.assertEqual((await self.client.get("/api/admin/backups/status")).status_code, 403)
+        self.assertEqual((await self.client.post("/api/admin/backups/run",
+                                                headers=self.origin)).status_code, 403)
+
     async def test_cookie_is_not_issued_for_invalid_password(self):
         r = await self.login(password="wrong password")
         self.assertEqual(r.status_code, 401)

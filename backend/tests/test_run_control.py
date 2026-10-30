@@ -114,7 +114,7 @@ class RunControlTests(unittest.IsolatedAsyncioTestCase):
 
         async def execute(_):
             try:
-                await self.engine._run_agent({"role": "Synthetic"}, "synthetic")
+                await self.engine._run_agent(main.CLUSTERS["foundation"]["agents"][0], "synthetic", cluster_id="foundation")
                 self.engine.master_summaries.append({"parsed": {"late": True}})
             finally:
                 await asyncio.sleep(0.01)
