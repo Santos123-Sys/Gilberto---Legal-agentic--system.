@@ -28,6 +28,11 @@ def check():
     assert status == 200 and isinstance(json.loads(data)["available"], bool), ("bootstrap", status, data[:200])
     status, _ = request(APP + "/api/auth/me")
     assert status == 401, ("anonymous identity", status)
+    status, _ = request(APP + "/api/admin/observability/status")
+    assert status == 401, ("anonymous telemetry admin", status)
+    status, _ = request(APP + "/api/admin/observability/probe", "POST", b"{}",
+                        {"Content-Type":"application/json","Origin":APP})
+    assert status == 401, ("anonymous telemetry probe", status)
     status, _ = request(APP + "/api/sessions", "POST", b'{"num_rounds":1}',
                         {"Content-Type":"application/json","Origin":APP})
     assert status == 401, ("anonymous session", status)
