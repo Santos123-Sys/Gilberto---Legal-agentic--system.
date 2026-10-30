@@ -52,6 +52,25 @@ def project_event(event: dict, run_id: str | None = None) -> dict:
     timestamp = _timestamp(event.get("timestamp"))
     if timestamp is not None:
         result["timestamp"] = timestamp
+    # Project only backend-confirmed run lifecycle into native AG-UI 1.0 events.
+    # Intermediate synthesis, gates and cancellation remain CUSTOM: none are
+    # successful final legal acceptance. The existing journal is still canonical.
+    if event["type"] == "RUN_STARTED":
+        result = {"type": "RUN_STARTED", "threadId": event["session_id"],
+                  "runId": metadata["runId"], "protocolVersion": "1.0",
+                  "metadata": metadata}
+    elif event["type"] == "FINAL_ACCEPTED":
+        result = {"type": "RUN_FINISHED", "threadId": event["session_id"],
+                  "runId": metadata["runId"], "metadata": metadata}
+    elif event["type"] == "ERROR":
+        # Never expose provider payloads, legal content or exception strings.
+        result = {"type": "RUN_ERROR", "message": "Legal analysis failed; inspect authorized session status.",
+                  "code": "GILBERTO_EXECUTION_ERROR", "metadata": metadata}
+    elif event["type"] in ("CLUSTER_START", "CLUSTER_COMPLETE") and event.get("cluster"):
+        result = {"type": "STEP_STARTED" if event["type"] == "CLUSTER_START" else "STEP_FINISHED",
+                  "stepName": "cluster:" + str(event["cluster"]), "metadata": metadata}
+    if timestamp is not None:
+        result["timestamp"] = timestamp
     return result
 
 
