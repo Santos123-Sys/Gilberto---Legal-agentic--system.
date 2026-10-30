@@ -406,7 +406,7 @@ class DebateEngineV3:
                 )
                 if decision["outcome"] not in ("ALLOW", "ALLOW_WITH_CONDITIONS"):
                     await self._emit(self._evt(
-                        "AGENT_POLICY_DENIED", agent=agent_cfg.get("role"),
+                        "AGENT_POLICY_DENIED", agent=(agent_cfg.get("role") if isinstance(agent_cfg, dict) else None),
                         cluster=cluster_id, decision=decision["outcome"],
                         reason_code=decision["reason_code"],
                         policy_version=decision["policy_version"],
