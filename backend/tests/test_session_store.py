@@ -19,6 +19,23 @@ class PersistenceTests(unittest.TestCase):
                 self.assertIsNone(restored['task'])
             self.assertIsNone(session_store.load('missing', DebateEngineV3))
 
+    def test_backup_transfer_consent_restored_from_checkpoint_without_implicit_grant(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, SESSION_DB_PATH=folder+'/sessions.db'):
+            for expected in (True, False):
+                engine = DebateEngineV3('backup-consent',20,1,'general',
+                                        provider_mode='backup', backup_consent=expected)
+                session = dict(id='backup-consent',engine=engine,task=None,
+                               config=dict(num_agents=20,num_rounds=1,workflow_type='general',
+                                           provider_mode='backup',backup_consent=expected),
+                               status='awaiting_feedback',events=[],error=None)
+                session_store.save(session)
+                recovered=session_store.load('backup-consent',DebateEngineV3)
+                self.assertIs(recovered['engine'].backup_consent, expected)
+            # A legacy checkpoint with no explicit consent must never gain it.
+            session['config'].pop('backup_consent')
+            session_store.save(session)
+            self.assertFalse(session_store.load('backup-consent',DebateEngineV3)['engine'].backup_consent)
+
     def test_checkpoint_and_load_close_sqlite_connections(self):
         import sqlite3
         raw_connect = sqlite3.connect
