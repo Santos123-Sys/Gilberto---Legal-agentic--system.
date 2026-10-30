@@ -61,6 +61,13 @@ jobs:
         working-directory: frontend
       - run: npm test
         working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swarm-synthetic-screenshots
+          path: frontend/test-results/swarm-screenshots/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - run: npm run test:local
         working-directory: frontend
       - run: npm run test:br-legal-notice
@@ -71,3 +78,20 @@ jobs:
       - run: docker build --build-arg VITE_AUTH_MODE=local -f Dockerfile -t gilberto-nginx-proxy-check .
         working-directory: frontend
       - run: docker run --rm -e PORT=8080 -e GILBERTO_API_UPSTREAM=http://127.0.0.1:8000 -e GILBERTO_PROXY_SECRET=ci-fixture-long-not-a-production-secret gilberto-nginx-proxy-check nginx -t
+  staging-release-contract:
+    if: always() && (github.base_ref == 'release/brlaw-security-staging-20261029' || github.ref == 'refs/heads/release/brlaw-security-staging-20261029')
+    needs: [backend, frontend, backup-gateway, staging-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed on any missing or failed staging release prerequisite
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BACKUP_RESULT: ${{ needs.backup-gateway.result }}
+          SMOKE_RESULT: ${{ needs.staging-smoke.result }}
+        run: |
+          test "$BACKEND_RESULT" = success
+          test "$FRONTEND_RESULT" = success
+          test "$BACKUP_RESULT" = success
+          test "$SMOKE_RESULT" = success
+          echo "Synthetic staging CI matrix passed; production release gates remain separate."
