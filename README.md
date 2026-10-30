@@ -1,453 +1,295 @@
-## Durable checkpoints
+# Gilberto — Sistema agêntico de análise jurídica
 
-Set `SESSION_DB_PATH=/data/sessions.sqlite3` on a persistent Railway volume mounted at `/data`. A single API worker writes atomic SQLite checkpoints after events and successful mutations. Completed results, uploaded text, review decisions and feedback-ready sessions survive restarts. Interrupted model execution and pending review execution recover as an explicit error with retained findings; calls are never silently replayed. Sessions created before checkpoint deployment cannot be recovered from old server memory. This is durability on one volume, not an off-site backup or an authorization system.
+**Português** · [English](README.en.md)
 
-# Current workflow reliability review
+> *"A tecnologia como ferramenta de fortalecimento do raciocínio — não como substituta do cérebro."*
 
-See [the architecture and UX review](docs/architecture-and-ux-review.md) for implemented changes, limits, architecture comparisons and verification instructions. The current UI uses the server-configured specialist roster, supports 1–3 initial rounds, and requires each triggered review before acceptance. Sessions are held in server memory.
+Gilberto é um sistema de múltiplos agentes de IA para a análise de contratos regidos pelo direito brasileiro. Equipes de agentes especializados examinam o documento, revisam as conclusões umas das outras, são contestadas por um revisor adversarial e consolidadas por um coordenador. Em seguida, o resultado passa por etapas obrigatórias de revisão humana.
 
-# Gilberto — AI Legal Agent System (v3)
-
-> *"Technology as a reasoning empowerment tool — not a brain substitute."*
+> **Situação atual.** O Gilberto produz **minutas geradas por IA para revisão jurídica**, e não pareceres. As fontes jurídicas citadas pelos agentes **não são verificadas automaticamente**, e ainda não existe um benchmark jurídico revisado por advogados que comprove a precisão do sistema. Toda conclusão exige verificação humana antes de qualquer uso.
 
 ---
 
-## The Philosophy Behind Gilberto
+## A filosofia por trás do Gilberto
 
-I built Gilberto for young lawyers who want to use technology intelligently — not to replace their legal judgment, but to sharpen it.
+Criei o Gilberto para jovens advogados que querem usar a tecnologia com inteligência: não para substituir o julgamento jurídico, mas para aprimorá-lo.
 
-The legal profession demands something that no AI system can replicate: the ability to understand context, exercise discretion, assume professional responsibility, and apply ethics under uncertainty. Gilberto does not pretend otherwise. What it does do is give you a structured, rigorous second opinion — powered by 20 specialized agents trained on Brazilian contract law — so that nothing slips through the cracks.
+A advocacia exige algo que nenhum sistema de IA reproduz: compreender o contexto, exercer discernimento, assumir responsabilidade profissional e aplicar a ética diante da incerteza. O Gilberto não finge o contrário. O que ele oferece é uma segunda opinião estruturada e rigorosa, produzida por agentes orientados por roteiros de análise contratual brasileira, para que nada passe despercebido.
 
-**The core belief:** a lawyer who uses AI critically is more dangerous than any AI system alone.
+**A convicção central:** um advogado que usa a IA de forma crítica é mais forte do que qualquer sistema de IA sozinho.
+
+## Duas formas de usar o Gilberto
+
+### Forma 1 — A IA como camada de verificação (recomendada para contratos complexos)
+
+```
+VOCÊ analisa o contrato primeiro
+        ↓
+Envia o documento ao Gilberto
+        ↓
+O Gilberto executa a análise com as equipes de agentes
+        ↓
+VOCÊ compara o resultado com a sua própria análise
+        ↓
+O Gilberto encontrou algo que você não viu?
+Você encontrou algo que o Gilberto não viu?
+        ↓
+O julgamento final é SEU
+```
+
+É a abordagem que recomendo para contratos complexos — acordos de acionistas, documentos de M&A, contratos de prestação de serviços de longo prazo —, em que o julgamento humano é insubstituível, mas o volume de cláusulas é grande o bastante para que algo sempre possa escapar. Use o Gilberto como um mecanismo de checklist com profundidade jurídica, e não como seu analista principal.
+
+### Forma 2 — A IA como analista de primeira leitura (útil para grandes volumes)
+
+```
+Envie o contrato diretamente
+        ↓
+O Gilberto executa o ciclo completo de análise
+        ↓
+VOCÊ avalia criticamente cada resultado
+Questione cada conclusão. Discorde quando souber mais.
+        ↓
+Envie comentários → o Gilberto os encaminha à frente competente
+        ↓
+Análise revisada
+        ↓
+O julgamento final é SEU
+```
+
+Funciona bem quando há muitos contratos a processar e é preciso um ponto de partida estruturado. A palavra-chave é **criticamente**: nunca aceite o resultado de forma passiva. O ciclo de comentários existe exatamente para isso — contestar as conclusões do Gilberto e obrigá-lo a defendê-las ou revisá-las.
+
+### O que o Gilberto não é
+
+O Gilberto **não substitui** a consultoria jurídica e **não é** um advogado inscrito na OAB. Ele **nem sempre acerta**: deixará de ver coisas, e você é a salvaguarda. Também **não foi feito para uso passivo** — o ciclo de comentários não é opcional; ele é o propósito do sistema.
 
 ---
 
-## Two Ways to Use Gilberto
+## Como funciona
 
-### Way 1 — AI as a Verification Layer (Recommended for Complex Contracts)
+### Equipes de agentes
 
-```
-YOU analyze the contract first
-        ↓
-Upload to Gilberto
-        ↓
-Gilberto runs its 20-agent cluster analysis
-        ↓
-YOU compare outputs against your own analysis
-        ↓
-Did Gilberto find something you missed?
-Did you find something Gilberto missed?
-        ↓
-Final judgment is YOURS
-```
+A análise é dividida em cinco frentes, cada uma com quatro especialistas e um coordenador:
 
-This is the approach I personally recommend for complex contracts — shareholders agreements, M&A documents, long-term service agreements — where human judgment is irreplaceable but the volume of clauses is large enough that something can always be missed. Use Gilberto as a checklist engine with legal depth, not as your primary analyst.
+| Frente | Especialistas |
+|---|---|
+| **Fundamentos** | Classificação do contrato, integridade do documento, qualificação das partes, contexto da operação |
+| **Risco financeiro** | Preço e pagamento, cláusula penal, garantias, quantificação da exposição econômica |
+| **Mitigação e saída** | Direitos de extinção do contrato, força maior e onerosidade excessiva, solução de controvérsias, estratégia de saída |
+| **Conformidade** | LGPD e proteção de dados, anticorrupção, validade da assinatura eletrônica, disposições gerais |
+| **Estratégia** | Poder de negociação, limites de concessão, intenção da contraparte, estrutura da operação |
 
----
+Fora das frentes atuam dois agentes de coordenação: um **advogado do diabo**, que contesta as conclusões de todas as frentes, e um **coordenador-geral**, que produz a síntese final. Quando o usuário envia comentários, um **agente defensor dos comentários** é incluído na frente competente. Os papéis, objetivos e instruções de cada agente ficam em [`backend/agents/cluster_definitions.py`](backend/agents/cluster_definitions.py).
 
-### Way 2 — AI as a First-Pass Analyst (Useful for High Volume)
+### Fluxo de uma rodada
 
 ```
-Upload contract directly
-        ↓
-Gilberto runs the full analysis loop
-        ↓
-YOU critically evaluate every output
-Question every finding. Disagree where you know better.
-        ↓
-Submit feedback → Gilberto routes it to the correct cluster
-        ↓
-Revised analysis
-        ↓
-Final judgment is YOURS
-```
-
-This works well when you are processing a high volume of contracts and need a structured starting point. The key word is **critically** — never accept the output passively. The feedback loop exists precisely for this: push back on Gilberto's findings and force it to defend or revise them.
-
----
-
-### What Gilberto Is Not
-
-- It is **not a substitute for legal advice**
-- It is **not a licensed lawyer**
-- It is **not always right** — it will miss things, and you are the safeguard
-- It is **not designed to be used passively** — the feedback loop is not optional, it is the point
-
----
-
-## System Overview
-
-Gilberto is a multi-agent hierarchical cluster system for Brazilian legal document analysis. It is powered by Maritaca AI (Sabiá-4) — a Brazilian large language model with deep knowledge of Brazilian law — and deployed on Railway.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Railway Platform                        │
-│                                                              │
-│  ┌──────────────────────┐   ┌──────────────────────────┐   │
-│  │   Frontend Service   │   │    Backend Service        │   │
-│  │   React + Nginx      │──▶│    FastAPI + CrewAI       │   │
-│  │   Port 80            │   │    Port 8000              │   │
-│  └──────────────────────┘   └────────────┬─────────────┘   │
-└────────────────────────────────────────── ┼ ───────────────┘
-                                            │
-                                 ┌──────────▼──────────┐
-                                 │   Maritaca AI API    │
-                                 │   (Sabiá-4 model)    │
-                                 └─────────────────────┘
-```
-
----
-
-## Multi-Agent Cluster Architecture (v3)
-
-### Design Principle
-
-> Agents vote **only within their cluster** (same domain knowledge).
-> Cross-cluster synthesis happens **only at Cluster Manager level**.
-> The Master Manager applies the Passo 11 risk formula across all 5 cluster summaries.
-
-This eliminates a critical epistemic flaw: a LGPD Specialist should never score a Guarantee Clause analysis. A Penalty Specialist should never evaluate an Anti-Corruption clause. Domain-bounded voting means every score is epistemically valid.
-
-### Sequential Execution Flow
-
-```
-USER uploads document
+Documento enviado
         │
         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       ROUND N                               │
-│                                                             │
-│  CLUSTER 1 — Foundation (Passos 0–2)                        │
-│  ├── Contract Classifier          → analysis → JSON         │
-│  ├── Document Integrity Auditor   → analysis → JSON         │
-│  ├── Parties & Authority Validator→ analysis → JSON         │
-│  └── Transactional Context Analyst→ analysis → JSON         │
-│       ↓ intra-cluster vote (domain-valid scores only)       │
-│       ↓ Cluster Manager 1 synthesizes                       │
-│       ↓ summary passed to Cluster 2                         │
-│                                                             │
-│  CLUSTER 2 — Financial Risk (Passos 3–5)                    │
-│  ├── Object Scope Specialist      → analysis → JSON         │
-│  ├── Price & Payment Analyst      → analysis → JSON         │
-│  ├── Penalty & Sanctions Spec.    → analysis → JSON         │
-│  └── Financial Exposure Quantifier→ analysis → JSON         │
-│       ↓ intra-cluster vote                                  │
-│       ↓ Cluster Manager 2 synthesizes                       │
-│       ↓ summaries 1+2 passed to Cluster 3                   │
-│                                                             │
-│  CLUSTER 3 — Mitigation & Exit (Passos 6–7)                 │
-│  ├── Guarantee Specialist         → analysis → JSON         │
-│  ├── Term & Renewal Analyst       → analysis → JSON         │
-│  ├── Termination Strategist       → analysis → JSON         │
-│  └── Hardship & Exceptio Spec.    → analysis → JSON         │
-│       ↓ intra-cluster vote                                  │
-│       ↓ Cluster Manager 3 synthesizes                       │
-│       ↓ summaries 1+2+3 passed to Cluster 4                 │
-│                                                             │
-│  CLUSTER 4 — Compliance (Passos 8–10)                       │
-│  ├── LGPD & Data Protection Spec. → analysis → JSON         │
-│  ├── Anti-Corruption & Regulatory → analysis → JSON         │
-│  ├── IP & Special Obligations     → analysis → JSON         │
-│  └── General Provisions Auditor   → analysis → JSON         │
-│       ↓ intra-cluster vote                                  │
-│       ↓ Cluster Manager 4 synthesizes                       │
-│       ↓ ALL summaries 1+2+3+4 passed to Cluster 5           │
-│                                                             │
-│  CLUSTER 5 — Strategy & Adversarial (Passo 9 + cross)       │
-│  ├── Dispute Resolution Specialist→ analysis → JSON         │
-│  ├── Negotiation Strategist       → analysis → JSON         │
-│  ├── Devil's Advocate             → attacks ALL clusters    │
-│  └── Risk Aggregation Specialist  → pre-applies Passo 11    │
-│       ↓ intra-cluster vote                                  │
-│       ↓ Cluster Manager 5 synthesizes                       │
-│                                                             │
-│  MASTER MANAGER                                             │
-│  └── Applies Passo 11 formula across all 5 summaries        │
-│       → Final synthesis → User                              │
-└─────────────────────────────────────────────────────────────┘
+As cinco frentes trabalham em paralelo
+  └─ dentro de cada frente, em sequência:
+     análises dos especialistas → votos entre pares → síntese do coordenador
         │
         ▼
-YOU review the analysis critically
+O advogado do diabo audita todas as frentes
         │
-    ┌───┴────┐
-    ▼        ▼
-Feedback   Accept
-    │
-    ▼
-Master Manager routes feedback to correct cluster
-Feedback Advocate injected into target cluster
-Target cluster + Cluster 5 re-run
-Master Manager re-synthesizes
+        ▼
+O coordenador-geral consolida o resultado
+        │
+        ▼
+Etapas de revisão humana (quando acionadas)
+        │
+        ▼
+VOCÊ revisa ── comentários ──▶ reanálise da frente competente
+        │                      e nova síntese
+        ▼
+Aceite final registrado
 ```
 
-**26 LLM calls per round** (20 agents + 5 cluster managers + 1 master manager).
+Os votos entre pares ocorrem **apenas dentro de cada frente**: um especialista em LGPD não pontua a análise de uma cláusula de garantia. A síntese entre frentes acontece somente nos níveis de coordenação.
+
+**Custo por rodada.** Na revisão completa, cerca de **47 chamadas ao modelo** por rodada; no rascunho focado, com um revisor por frente, cerca de **12**. Os números pressupõem as cinco frentes ativas; a tela de plano mostra o número efetivo antes do envio.
+
+### Pontuação de risco
+
+Cada frente atribui uma pontuação de risco de 0 a 10 e uma autoavaliação de confiança de 1 a 5. Dois elementos são determinados pelo código, e não pelo modelo:
+
+- **Pontuação final:** mediana das pontuações das frentes, ponderada pela confiança ([`backend/scoring.py`](backend/scoring.py)).
+- **Classificação:** **Crítico** se a pontuação for ≥ 8; **Relevante** se for ≥ 5; **Aceitável** abaixo disso.
+
+Os critérios qualitativos do Passo 11 — por exemplo, um risco crítico em qualquer frente ou um campo em branco no objeto, no preço ou no prazo — orientam os agentes por meio das suas instruções, mas **não são impostos pelo código**. A confiança informada pelo modelo **não é** uma probabilidade calibrada de acerto.
+
+### Etapas de revisão humana
+
+A análise para e exige uma decisão humana fundamentada quando:
+
+1. a confiança de alguma frente fica abaixo do limite configurado (`GATE_1_CONFIDENCE_THRESHOLD`);
+2. a gravidade das lacunas apontadas pelo advogado do diabo excede o limite configurado (`GATE_2_DEVIL_ADVOCATE_THRESHOLD`);
+3. a classificação final é **Crítico**.
+
+O revisor pode aprovar, substituir a pontuação ou solicitar reanálise; toda decisão exige fundamentação e fica registrada na trilha de auditoria. O aceite final só é possível depois de concluídas todas as revisões obrigatórias.
 
 ---
 
-## Agent Roster (20 Agents)
+## Segurança e tratamento de dados
 
-### Cluster 1 — Foundation (Passos 0–2)
-| Agent | Owns |
-|-------|------|
-| Contract Classifier | Passo 1.3 — nominado/atípico, negociado/adesão, sinalagmático |
-| Document Integrity Auditor | Passo 1 — blank fields, missing annexes, cross-references |
-| Parties & Authority Validator | Passo 2 — representation authority, alçadas, interveners |
-| Transactional Context Analyst | Passo 0 — counterparty, sector regulation, CADE, integration |
-
-### Cluster 2 — Financial Risk (Passos 3–5)
-| Agent | Owns |
-|-------|------|
-| Object Scope Specialist | Passo 3 — object precision, scope delimitation |
-| Price & Payment Analyst | Passo 4 — indexation, Lei 9.069/95 art. 28, pro rata die |
-| Penalty & Sanctions Specialist | Passo 5 — CC art. 412 ceiling, moratória vs. compensatória |
-| Financial Exposure Quantifier | Cross-Passo financial modeling and worst-case exposure |
-
-### Cluster 3 — Mitigation & Exit (Passos 6–7)
-| Agent | Owns |
-|-------|------|
-| Guarantee Specialist | Passo 6 — fiança, alienação fiduciária, penhor |
-| Term & Renewal Analyst | Passo 7.1 — vigência, renovação automática, notice periods |
-| Termination Strategist | Passo 7.2 — rescisão, resilição, cure periods, CC art. 473 |
-| Hardship & Exceptio Specialist | Passos 7.3–7.4 — CC arts. 317, 476, 478–480, MAC |
-
-### Cluster 4 — Compliance (Passos 8–10)
-| Agent | Owns |
-|-------|------|
-| LGPD & Data Protection Specialist | LGPD full audit — DPA, DPO, ANPD Res. 2/2022 |
-| Anti-Corruption & Regulatory Specialist | Lei 12.846/2013, FCPA, UKBA, sector regulation |
-| IP & Special Obligations Specialist | Lei 9.610/98 art. 11, non-compete indemnity, exclusivity |
-| General Provisions Auditor | Passo 10 — merger clause, severability, e-signature |
-
-### Cluster 5 — Strategy & Adversarial (Passo 9 + cross-cluster)
-| Agent | Owns |
-|-------|------|
-| Dispute Resolution Specialist | Passo 9 — forum election, arbitration clause quality |
-| Negotiation Strategist | Ranked redlines with market benchmarks across ALL clusters |
-| Devil's Advocate | Attacks ALL cluster outputs — finds the critical gap no one addressed |
-| Risk Aggregation Specialist | Pre-applies Passo 11 formula before Master Manager |
-
-### Master Manager
-| Role | Function |
-|------|----------|
-| Master Legal Partner | Applies Passo 11 across all 5 cluster summaries — final synthesis |
+- **Autenticação obrigatória**, por OIDC ou por contas locais emitidas por um administrador (`AUTH_MODE=oidc` ou `local`). As rotas de sessão e de administração não funcionam sem autenticação.
+- **Isolamento por titular:** cada sessão pertence ao usuário que a criou; para qualquer outro usuário, ela simplesmente "não existe".
+- **Somente jurisdição brasileira.**
+- **Provedor de IA:** Maritaca (Sabiá-4) é o provedor principal. Um provedor reserva só é usado se o operador o configurar **e** o usuário consentir expressamente com a transferência do documento. Não há nova tentativa nem troca automática de provedor após uma resposta incerta.
+- **Permissões dos agentes:** cada envio ao modelo é autorizado por uma política de capacidades; um agente não pode ampliar as próprias permissões.
+- **Persistência:** as sessões são gravadas em checkpoints SQLite em volume persistente (`SESSION_DB_PATH`), com backup criptografado e verificação de restauração isolada.
+- **Base de provas (em implantação):** existe uma base PostgreSQL que vincula cada conclusão ao trecho exato do documento ou da fonte, com isolamento por inquilino no próprio banco. Ela **ainda não está ligada** ao fluxo de análise e permanece desativada até `EVIDENCE_DATABASE_URL` ser configurada.
 
 ---
 
-## Feedback Routing (Human in the Loop)
+## Tecnologias
 
-When you submit feedback, the Master Manager classifies it and routes it intelligently — only the relevant cluster re-runs, not the entire system:
-
-```
-"The non-compete clause was not analyzed deeply enough"
-        → classified as Cluster 4 (Compliance — IP & Special Obligations)
-        → Feedback Advocate injected into Cluster 4
-        → Cluster 4 re-runs with your concern
-        → Cluster 5 (adversarial) always re-runs after any feedback
-        → Master Manager re-synthesizes
-        → You see the updated analysis
-```
-
-This is the mechanism that keeps you in control. Use it aggressively.
-
----
-
-## Passo 11 Risk Formula (Hardcoded — Never Subjective)
-
-```
-CRITICAL:   ≥1 critical risk in any cluster
-            OR absent clause with immediate patrimonial risk
-            OR blank field in object, price, or term
-
-RELEVANT:   No critical + (≥2 relevant risks
-            OR 1 relevant risk in high-impact clause)
-
-ACCEPTABLE: No critical + at most 1 relevant risk in limited-impact clause
-```
-
-Every risk classification includes the **exact activation criterion** — fully auditable. No subjective drift.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| LLM | Maritaca AI Sabiá-4 (OpenAI-compatible API) |
-| Agent Framework | CrewAI |
+| Camada | Tecnologia |
+|---|---|
+| Modelo de linguagem | Maritaca AI Sabiá-4 (API compatível com OpenAI) |
+| Agentes | CrewAI |
 | Backend | FastAPI (Python 3.11) |
-| Streaming | Server-Sent Events (SSE) |
-| Frontend | React 18 + Vite |
-| Styling | Tailwind CSS |
-| Deployment | Railway (two services) |
+| Tempo real | Server-Sent Events |
+| Frontend | React + Vite, Tailwind CSS, servido por Nginx |
+| Persistência | SQLite (sessões e identidades); PostgreSQL + Alembic (base de provas) |
+| Implantação | Railway — ambientes de homologação e de produção |
 
 ---
 
-## Local Development
+## Desenvolvimento local
 
-### Prerequisites
-- Python 3.11+
-- Node.js 20+
-- Maritaca AI API key — get yours at [plataforma.maritaca.ai](https://plataforma.maritaca.ai)
+### Pré-requisitos
+
+- Python 3.11
+- Node.js 22
+- Chave de API da Maritaca ([plataforma.maritaca.ai](https://plataforma.maritaca.ai))
 
 ### Backend
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+python3.11 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
-# Create env file — never commit this
-cp ../.env.example .env
-# Edit .env and set MARITACA_API_KEY
-
+cp ../.env.example .env              # nunca versione este arquivo
+# Edite .env: MARITACA_API_KEY e a configuração de autenticação
 uvicorn main:app --reload --port 8000
 ```
 
-Verify your API key is loaded correctly:
-```bash
-python -c "from config import settings; print('KEY:', settings.MARITACA_API_KEY[:8], '...')"
-```
+A autenticação é obrigatória também no ambiente local. Configure-a conforme um destes guias:
 
-Backend: http://localhost:8000
-API docs: http://localhost:8000/docs
+- contas locais por convite: [`docs/self-hosted-identity-runbook-20261029.md`](docs/self-hosted-identity-runbook-20261029.md);
+- provedor OIDC: [`docs/oidc-rollout-and-railway-preflight.md`](docs/oidc-rollout-and-railway-preflight.md).
 
 ### Frontend
 
 ```bash
 cd frontend
-npm install
-echo "VITE_API_URL=http://localhost:8000" > .env
+npm ci
 npm run dev
 ```
 
-Frontend: http://localhost:3000
+### Testes
 
----
-
-## Railway Deployment
-
-### Step 1 — Push to GitHub
+Os mesmos comandos executados na integração contínua:
 
 ```bash
-git init
-git add .
-git commit -m "v3: 20-agent cluster architecture"
-git remote add origin https://github.com/Santos123-Sys/Gilberto---Legal-agentic--system.git
-git branch -M main
-git push -u origin main
+# Backend
+cd backend
+python -m unittest discover -s tests -v
+python -m benchmarks.validate
+
+# Frontend
+cd frontend
+npx playwright install chromium
+npm test
+npm run test:local
+npm run test:br-legal-notice
+npm run build
 ```
 
-### Step 2 — Deploy Backend Service
-
-1. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub repo
-2. Select your repository
-3. Click the service → **Settings** → **Root Directory**: `backend`
-4. **Variables** tab → add:
-
-```
-MARITACA_API_KEY    = mk-your-key-here
-MARITACA_MODEL      = sabia-4
-MAX_AGENTS          = 20
-MAX_ROUNDS          = 5
-CORS_ORIGINS        = *
-PORT                = 8000
-```
-
-5. Deploy → copy the generated backend URL
-
-### Step 3 — Deploy Frontend Service
-
-1. New Service → GitHub Repo → same repo
-2. **Settings** → **Root Directory**: `frontend`
-3. **Variables** → add:
-
-```
-VITE_API_URL = https://your-backend-url.railway.app
-```
-
-4. Deploy → copy the generated frontend URL
-
-### Step 4 — Lock CORS
-
-Back to backend **Variables**:
-
-```
-CORS_ORIGINS = https://your-frontend-url.railway.app
-```
-
-Redeploy backend.
+Os testes da base de provas também rodam contra PostgreSQL quando `EVIDENCE_TEST_DATABASE_URL` está definida; na integração contínua, eles não podem ser ignorados.
 
 ---
 
-## API Reference
+## Implantação
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/sessions` | Create session |
-| `POST` | `/api/sessions/{id}/start` | Upload document + start cluster analysis |
-| `GET` | `/api/sessions/{id}/stream` | SSE stream — all 26 agent events per round |
-| `GET` | `/api/sessions/{id}/status` | Current session status |
-| `GET` | `/api/sessions/{id}/results` | Full results with all cluster summaries |
-| `POST` | `/api/sessions/{id}/feedback` | Submit feedback → routes to correct cluster |
-| `POST` | `/api/sessions/{id}/accept` | Accept final analysis |
-| `GET` | `/api/health` | Health check |
+O Gilberto roda no Railway com dois serviços — backend e frontend — em dois ambientes:
+
+| Ambiente | Ramo implantado |
+|---|---|
+| Homologação | `release/brlaw-security-staging-20261029` |
+| Produção | `main` |
+
+O frontend Nginx encaminha `/api` ao backend pela rede privada do Railway (`GILBERTO_API_UPSTREAM`, `GILBERTO_PROXY_SECRET`), de modo que navegador e API compartilham a mesma origem. O backend precisa de um volume persistente montado em `/data`. Para o passo a passo, as variáveis exigidas e as verificações prévias, consulte [`docs/oidc-rollout-and-railway-preflight.md`](docs/oidc-rollout-and-railway-preflight.md) e [`docs/self-hosted-identity-runbook-20261029.md`](docs/self-hosted-identity-runbook-20261029.md).
+
+**Política de liberação:** nenhuma alteração chega à produção sem os critérios de liberação documentados, incluindo revisão jurídica humana do conteúdo jurídico.
 
 ---
 
-## Project Structure
+## Referência da API
+
+As rotas de sessão e de administração exigem autenticação. `…` corresponde a `/api/sessions`.
+
+| Grupo | Rotas |
+|---|---|
+| Sessões | `POST /api/sessions` · `POST …/{id}/start` · `GET …/{id}/status` · `GET …/{id}/results` · `GET …/{id}/stream` (SSE) |
+| Revisão humana | `GET …/{id}/gates` · `POST …/{id}/gate-decision` · `POST …/{id}/human-votes` · `POST …/{id}/feedback` · `POST …/{id}/accept` |
+| Controle de execução | `POST …/{id}/pause` · `POST …/{id}/resume` · `POST …/{id}/cancel` |
+| Autenticação | `POST /api/auth/login` · `POST /api/auth/logout` · `GET /api/auth/me` · `POST /api/auth/change-password` · `GET /api/auth/bootstrap-status` · `POST /api/auth/bootstrap` |
+| Administração | `GET /api/admin/users` · `GET /api/admin/backups/status` · `POST /api/admin/backups/run` · `POST /api/admin/backups/verify` · `GET /api/admin/operations/summary` · rotas de observabilidade |
+| Saúde | `GET /api/health` · `GET /api/ready` |
+
+A documentação interativa da API fica em `/docs` quando o backend roda localmente.
+
+---
+
+## Estrutura do projeto
 
 ```
-gilberto-legal-agent/
-├── backend/
-│   ├── main.py                      # FastAPI app + all endpoints
-│   ├── debate_engine.py             # Cluster orchestration engine
-│   ├── config.py                    # Settings from environment
-│   ├── agents/
-│   │   ├── cluster_definitions.py   # 20 agents + 5 cluster managers + Master Manager
-│   │   └── prompts.py               # Brazilian workflow checklists + market parameters
-│   ├── models/
-│   │   └── schemas.py               # Pydantic request/response models
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── railway.toml
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx                  # Root component + stage routing
-│   │   ├── components/
-│   │   │   ├── SessionConfig.jsx    # Step 1: configure session
-│   │   │   ├── DebatePanel.jsx      # Step 2: live cluster debate view
-│   │   │   ├── AgentCard.jsx        # Individual agent status cards
-│   │   │   └── FeedbackForm.jsx     # Step 3: feedback + accept
-│   │   ├── hooks/
-│   │   │   └── useDebateSession.js  # All session state + SSE consumption
-│   │   └── services/
-│   │       └── api.js               # API calls + SSE stream helper
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── railway.toml
-├── .env.example                     # Environment variable template
-└── README.md
+backend/
+  main.py                  API FastAPI e todas as rotas
+  config.py                Configurações por variáveis de ambiente
+  engines/                 Orquestração dos agentes (debate_engine_v3.py)
+  agents/                  Definições, papéis e instruções dos agentes
+  legal/                   Regras de confiabilidade jurídica brasileira
+  evidence/                Base de provas PostgreSQL (desativada por padrão)
+  security/                Autenticação, autorização e política de capacidades
+  gates/                   Etapas de revisão humana
+  scoring.py               Agregação determinística da pontuação de risco
+  benchmarks/              Casos sintéticos de controle
+  tests/                   Testes do backend
+frontend/
+  src/components/          Telas e painéis
+  src/hooks/               Estado da sessão e fluxo de eventos
+  src/auth/                Autenticação no navegador
+  tests/, tests-local/     Testes Playwright (OIDC e contas locais)
+backup_gateway/            Gateway de backup criptografado
+docs/                      Decisões de arquitetura, auditorias e guias operacionais
 ```
 
 ---
 
-## Roadmap
+## Próximos passos
 
-- [ ] PostgreSQL session persistence (Railway Postgres addon)
-- [ ] PDF text extraction with pdfplumber
-- [ ] Export final report as PDF (Passo 12 — reportlab output)
-- [ ] Authentication (JWT)
-- [ ] Rate limiting per user
-- [ ] Sabiá-4-thinking model for Cluster 5 (adversarial reasoning)
-- [ ] Parallel cluster execution (Clusters 1–4 simultaneously)
-- [ ] Contract type auto-detection (routes to specific checklist automatically)
+O plano de engenharia em andamento prevê, nesta ordem:
+
+- [x] Reconciliação de segurança entre homologação e produção
+- [x] Base de provas PostgreSQL com isolamento por inquilino
+- [ ] Interface, mensagens e instruções dos agentes em português
+- [ ] Ingestão estruturada de documentos (páginas, cláusulas, tabelas)
+- [ ] OCR local para documentos digitalizados
+- [ ] Consulta a fontes oficiais brasileiras (Planalto, LexML, STJ, STF, CNJ DataJud)
+- [ ] Agentes que fundamentam cada conclusão em provas verificáveis
+- [ ] Área de trabalho para inspecionar cada conclusão ao lado da fonte
+- [ ] Revisão profissional atribuível, vinculada à versão exata da prova
+- [ ] Benchmark jurídico brasileiro revisado por advogados
 
 ---
 
-## A Final Note
+## Nota final
 
-Gilberto is a personal project, built without commercial intent, for lawyers who believe that the future of legal practice is not AI replacing judgment — it is lawyers using AI to make their judgment sharper, faster, and harder to beat.
+O Gilberto é um projeto pessoal, sem fins comerciais, para advogados que acreditam que o futuro da advocacia não é a IA substituindo o julgamento — são advogados usando a IA para tornar o próprio julgamento mais preciso, mais rápido e mais difícil de superar.
 
-If you are using this tool passively, you are using it wrong.
-
+Se você está usando esta ferramenta de forma passiva, está usando errado.
