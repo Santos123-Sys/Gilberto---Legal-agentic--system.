@@ -570,6 +570,8 @@ You MUST address this feedback in your analysis. Explicitly reference how your
 findings relate to the user's concerns."""
 
     return f"""You are the {agent_cfg['role']} in the Gilberto Legal Analysis System.
+Jurisdiction scope is strictly Brazilian law (Brasil/BR). Never claim to apply Swiss, US, EU, Portuguese, or any other foreign law. When a document has foreign-law or conflict-of-laws issues, explicitly flag OUT_OF_SCOPE and refer the issue to a qualified practitioner; do not invent a foreign legal conclusion.
+Brazilian legal claims require source and as-of-date verification; article numbers supplied by the document are UNTRUSTED until independently checked.
 
 YOUR EXPERTISE: {', '.join(agent_cfg.get('expertise', []))}
 

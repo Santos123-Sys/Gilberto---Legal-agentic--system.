@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { MessageSquare, Send, CheckCircle, RefreshCw, ChevronRight } from 'lucide-react'
 
 const FEEDBACK_TEMPLATES = [
-  "The agents overlooked the indemnification clause. Please analyze it in more depth.",
-  "I disagree with the risk assessment on the payment terms. Please re-examine.",
-  "Focus more on representation authority and who can bind the company.",
-  "Are there any LGPD compliance issues that were not addressed?",
+  "Os agentes deixaram de examinar a cláusula de indenização. Analisem-na com mais profundidade.",
+  "Discordo da avaliação de risco sobre as condições de pagamento. Reexaminem, por favor.",
+  "Aprofundem a análise dos poderes de representação e de quem pode obrigar a sociedade.",
+  "Há questões de conformidade com a LGPD que não foram tratadas?",
 ]
 
 export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, rounds = [] }) {
@@ -32,11 +32,11 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
       <div className="card border border-gold-500/30 bg-gold-500/5 p-5 flex items-start gap-4">
         <div className="text-3xl">⚖️</div>
         <div>
-          <h3 className="font-display text-lg text-gold-400">Debate Complete</h3>
+          <h3 className="font-display text-lg text-gold-400">Debate concluído</h3>
           <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-            {safeRounds.length} round{safeRounds.length !== 1 ? 's' : ''} of analysis finished.
-            Review the findings below. You may submit feedback to trigger an additional debate round
-            with a Feedback Advocate agent, or accept the current analysis as final.
+            {safeRounds.length === 1 ? '1 rodada de análise concluída.' : `${safeRounds.length} rodadas de análise concluídas.`}
+            Revise as conclusões a seguir. Você pode enviar comentários para acionar uma nova rodada de debate
+            com um agente defensor dos comentários ou aceitar a análise atual como final.
           </p>
         </div>
       </div>
@@ -46,11 +46,11 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
         <div className="card p-5 space-y-4">
           <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
             <CheckCircle size={14} className="text-green-400" />
-            Final Analysis Summary
+            Resumo da análise final
           </h4>
           {latestSummary.most_valuable_insight && (
             <div className="bg-slate-800/40 rounded-lg p-4 border-l-2 border-gold-500">
-              <p className="text-xs text-gold-400 mb-1 font-medium">Most Valuable Insight</p>
+              <p className="text-xs text-gold-400 mb-1 font-medium">Constatação mais relevante</p>
               <p className="text-sm text-slate-300 leading-relaxed">{latestSummary.most_valuable_insight}</p>
             </div>
           )}
@@ -72,12 +72,12 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
       <div className="card p-5 space-y-4">
         <label className="flex items-center gap-2 text-sm font-medium text-gold-400">
           <MessageSquare size={15} />
-          Submit Feedback for Next Round
+          Enviar comentários para a próxima rodada
         </label>
 
         {/* Quick templates */}
         <div className="space-y-1">
-          <p className="text-xs text-slate-500 mb-2">Quick templates:</p>
+          <p className="text-xs text-slate-500 mb-2">Modelos rápidos:</p>
           <div className="flex flex-wrap gap-2">
             {FEEDBACK_TEMPLATES.map((t, i) => (
               <button
@@ -92,12 +92,12 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
         </div>
 
         <textarea
-          aria-label="Feedback for the next review"
+          aria-label="Comentários para a próxima revisão"
           minLength={10}
           maxLength={10000}
           value={feedback}
           onChange={(e) => setFeedback(e.target.value)}
-          placeholder="Describe what the agents missed, what you disagree with, or what specific area needs deeper analysis…"
+          placeholder="Descreva o que os agentes deixaram de examinar, do que você discorda ou que ponto específico exige análise mais profunda…"
           rows={4}
           className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-gold-500/50 resize-none transition-colors"
         />
@@ -111,11 +111,11 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
               enabled:bg-blue-600 enabled:hover:bg-blue-500 enabled:text-white enabled:active:scale-95"
           >
             {loading ? (
-              <><RefreshCw size={14} className="animate-spin" /> Running…</>
+              <><RefreshCw size={14} className="animate-spin" /> Em execução…</>
             ) : submitted ? (
-              <><RefreshCw size={14} /> Sending…</>
+              <><RefreshCw size={14} /> Enviando…</>
             ) : (
-              <><Send size={14} /> Submit & Re-Debate</>
+              <><Send size={14} /> Enviar e debater novamente</>
             )}
           </button>
 
@@ -126,20 +126,20 @@ export function FeedbackForm({ onSubmitFeedback, onAccept, loading = false, roun
               disabled:opacity-40 disabled:cursor-not-allowed
               enabled:bg-gold-500 enabled:hover:bg-gold-400 enabled:text-slate-950 enabled:active:scale-95"
           >
-            Accept Final Analysis <ChevronRight size={14} />
+            Aceitar a análise final <ChevronRight size={14} />
           </button>
         </div>
         {confirmAcceptance && (
-          <div role="group" aria-label="Confirm final acceptance" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
-            <p className="text-sm text-slate-200">Accept this AI-generated draft as the final session result? This records your acceptance; it does not verify legal authorities or evidence.</p>
+          <div role="group" aria-label="Confirmar o aceite final" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
+            <p className="text-sm text-slate-200">Aceitar esta minuta gerada por IA como resultado final da sessão? Isso registra o seu aceite; não verifica fundamentos jurídicos nem provas.</p>
             <div className="flex flex-wrap gap-3">
-              <button type="button" onClick={() => { setConfirmAcceptance(false); onAccept?.() }} className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-medium text-slate-950">Confirm final acceptance</button>
-              <button type="button" onClick={() => setConfirmAcceptance(false)} className="rounded-lg border border-slate-500 px-4 py-2 text-sm text-slate-200">Keep reviewing</button>
+              <button type="button" onClick={() => { setConfirmAcceptance(false); onAccept?.() }} className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-medium text-slate-950">Confirmar o aceite final</button>
+              <button type="button" onClick={() => setConfirmAcceptance(false)} className="rounded-lg border border-slate-500 px-4 py-2 text-sm text-slate-200">Continuar revisando</button>
             </div>
           </div>
         )}
         <p className="text-xs text-slate-600">
-          Submitting feedback creates a new Feedback Advocate agent and starts an additional debate round.
+          O envio de comentários cria um novo agente defensor dos comentários e inicia uma rodada adicional de debate.
         </p>
       </div>
     </div>

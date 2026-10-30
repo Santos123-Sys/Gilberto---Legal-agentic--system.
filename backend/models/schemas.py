@@ -206,9 +206,11 @@ class SessionCreateRequest(BaseModel):
     num_agents: int = Field(default=20, ge=1, le=100)  # Legacy input; actual team size is returned.
     num_rounds: int = Field(default=1, ge=1, le=3)
     document_type: Optional[str] = None
-    jurisdiction: str = "BR"
+    jurisdiction: Literal["BR"] = "BR"  # This product supports Brazilian law exclusively.
+    provider_mode: Literal["primary", "backup"] = "primary"
+    backup_consent: bool = False  # Explicit owner approval before transfer to a different vendor.
     urgency: Literal["immediate", "high", "normal", "low"] = "normal"
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None  # Legacy input; never used for ownership
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -216,6 +218,13 @@ class SessionResponse(BaseModel):
     session_id: str
     status: SessionStatus
     config: Dict[str, Any]
+
+
+class HumanVoteRequest(BaseModel):
+    """Non-binding expert feedback on one immutable agent-analysis event."""
+    event_id: int = Field(ge=1)
+    decision: Literal["agree", "disagree", "needs_evidence"]
+    reasoning: str = Field(default="", max_length=2000)
 
 
 class FeedbackRequest(BaseModel):

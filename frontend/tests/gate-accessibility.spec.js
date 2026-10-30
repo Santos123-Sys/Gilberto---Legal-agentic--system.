@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './authenticated-fixture.js'
 
 test('gate choice exposes selected state to assistive technology and reflows on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
@@ -18,17 +18,17 @@ test('gate choice exposes selected state to assistive technology and reflows on 
   })
   await page.goto('/')
   await page.locator('#doc-upload').setInputFiles({ name: 'review.txt', mimeType: 'text/plain', buffer: Buffer.from('Review text.') })
-  await page.getByRole('button', { name: 'Start Debate' }).click()
-  await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
+  await page.getByRole('button', { name: 'Iniciar debate' }).click()
+  await page.getByRole('button', { name: 'Prosseguir com a análise' }).click()
   await expect.poll(() => page.evaluate(() => window.testStreams.length)).toBe(1)
   await page.evaluate(() => window.testStreams[0].onmessage({
     data: JSON.stringify({ event_id: 1, type: 'GATE_TRIGGERED', gate_id: 'gate-a', gate_number: 1,
       trigger: { description: 'Check risk', affected_cluster: 'foundation' } }),
   }))
-  const group = page.getByRole('group', { name: 'Review decision' })
+  const group = page.getByRole('group', { name: 'Decisão de revisão' })
   await expect(group).toBeVisible()
-  const approve = group.getByRole('button', { name: 'Approve' })
-  const override = group.getByRole('button', { name: 'Override' })
+  const approve = group.getByRole('button', { name: 'Aprovar' })
+  const override = group.getByRole('button', { name: 'Substituir' })
   await expect(approve).toHaveAttribute('aria-pressed', 'false')
   const beforeBorder = await override.evaluate(node => getComputedStyle(node).borderTopColor)
   await override.click()

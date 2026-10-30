@@ -19,25 +19,43 @@ Endpoints:
 
 import asyncio
 from copy import deepcopy
+from contextlib import closing
 import json
 import uuid
+from functools import lru_cache
+from time import time
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, Field
+from hmac import compare_digest
+from urllib.parse import urlparse
 
 from config import settings
+from financial.planning import estimate_plan
+from operational.metrics import summarize_sessions
 import session_store
-from provider import ProviderError
+import run_control
+from agents.workspace_registry import roster_for_engine, coordination_roster
+from workspace_events import project_event, state_snapshot, stream_end
+from observability import from_environment
+from provider import ProviderError, backup_configured
 from document_extractor import DocumentExtractionError, extract_document_text
 from engines.debate_engine_v3 import DebateEngineV3, ReanalysisRequested, WorkflowError
 from scoring import classification_for
 from agents.cluster_definitions import CLUSTERS
+from security.oidc import (Principal, AuthenticationRejected, IdentityNotConfigured,
+                           build_jwks_resolver, verify_access_token)
+from security.authorization import AccessDenied, require_session_owner
+from security import local_identity
+import backup_operations
 from models.schemas import (
     FeedbackRequest,
     GateDecisionRequest,
+    HumanVoteRequest,
     SessionCreateRequest,
     SessionResponse,
 )
@@ -60,6 +78,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def start_backup_scheduler():
+    app.state.telemetry = from_environment()
+    if settings.AUTH_MODE == "local":
+        # The empty identity/checkpoint stores must exist before first backup.
+        with closing(local_identity.connect()):
+            pass
+        with closing(session_store.connect()):
+            pass
+        if backup_operations.enabled():
+            app.state.backup_task = asyncio.create_task(backup_operations.periodic_backup())
+
+
+@app.on_event("shutdown")
+async def stop_backup_scheduler():
+    telemetry = getattr(app.state, "telemetry", None)
+    if telemetry is not None:
+        telemetry.close()
+    task = getattr(app.state, "backup_task", None)
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 # ─────────────────────────────────────────────
 #  IN-MEMORY SESSION STORE
 # ─────────────────────────────────────────────
@@ -67,25 +109,275 @@ app.add_middleware(
 sessions: Dict[str, dict] = {}
 
 
-def _get_session(session_id: str) -> dict:
+@lru_cache(maxsize=8)
+def _trusted_key_resolver(issuer: str, audience: str, jwks_url: str):
+    return build_jwks_resolver(jwks_url, issuer=issuer, audience=audience)
+
+
+def current_principal(request: Request) -> Principal:
+    """Fail-closed bearer validation for every resource API, without query tokens."""
+    if settings.AUTH_MODE == "local":
+        entry = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
+        if not entry:
+            raise HTTPException(status_code=401, detail="Autenticação necessária")
+        return Principal(issuer=local_identity.LOCAL_ISSUER,
+                         subject=entry["id"], expires_at=entry["expires_at"])
+    if settings.AUTH_MODE != "oidc":
+        raise HTTPException(status_code=503, detail="O modo de autenticação é inválido")
+    issuer, audience, keys = settings.OIDC_ISSUER, settings.OIDC_AUDIENCE, settings.OIDC_JWKS_URL
+    if not issuer or not audience or not keys:
+        raise HTTPException(status_code=503, detail="A autenticação não está configurada")
+    try:
+        return verify_access_token(request.headers.get("Authorization"), issuer=issuer,
+                                  audience=audience,
+                                  signing_key_resolver=_trusted_key_resolver(issuer, audience, keys))
+    except IdentityNotConfigured:
+        raise HTTPException(status_code=503, detail="A autenticação não está configurada") from None
+    except AuthenticationRejected:
+        raise HTTPException(status_code=401, detail="Autenticação necessária",
+                            headers={"WWW-Authenticate": "Bearer"}) from None
+
+
+
+# Authentication routes use short-lived opaque cookie sessions and never
+# store client credentials, access tokens or API keys in localStorage.
+class LocalLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class LocalBootstrapRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=256)
+    bootstrap_token: str = Field(min_length=32, max_length=512)
+
+
+class LocalPasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+def _local_auth_configuration_valid():
+    """Fail-closed deployment preflight; deliberately does not reveal secrets.
+
+    A green /api/ready must not mean that authentication would reject every
+    legitimate user because an upstream secret or browser origin is missing.
+    First-admin bootstrap may still be pending; readiness must allow it.
+    """
+    if settings.AUTH_MODE != "local":
+        return True
+    if len(settings.LOCAL_AUTH_PROXY_SECRET) < 32:
+        return False
+    origin = settings.LOCAL_AUTH_APP_ORIGIN
+    if not isinstance(origin, str) or not origin or origin != origin.strip():
+        return False
+    try:
+        parsed = urlparse(origin)
+        port = parsed.port
+    except ValueError:
+        return False
+    if (not parsed.hostname or parsed.username or parsed.password or
+            parsed.path or parsed.params or parsed.query or parsed.fragment or
+            parsed.geturl() != origin):
+        return False
+    if settings.LOCAL_AUTH_COOKIE_SECURE:
+        return parsed.scheme == "https"
+    return parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1")
+
+
+def _local_only():
+    if settings.AUTH_MODE != "local":
+        raise HTTPException(status_code=404, detail="Não encontrado")
+
+
+def _issue_cookie(response: Response, token: str):
+    response.set_cookie(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE), token, max_age=local_identity.SESSION_TTL,
+                        secure=settings.LOCAL_AUTH_COOKIE_SECURE, httponly=True,
+                        samesite="strict", path="/")
+
+
+@app.get("/api/auth/bootstrap-status")
+async def local_bootstrap_status():
+    _local_only()
+    enabled = (not local_identity.has_bootstrapped() and
+               len(settings.LOCAL_BOOTSTRAP_TOKEN_SHA256) == 64 and
+               settings.LOCAL_BOOTSTRAP_EXPIRES_AT > int(time()))
+    return {"available": enabled}
+
+
+@app.post("/api/auth/bootstrap")
+async def local_bootstrap(body: LocalBootstrapRequest, response: Response):
+    _local_only()
+    if local_identity.has_bootstrapped():
+        raise HTTPException(status_code=409, detail="A configuração inicial já foi concluída")
+    try:
+        token, user = local_identity.bootstrap_first_admin(
+            body.email, body.password, body.bootstrap_token,
+            token_hash=settings.LOCAL_BOOTSTRAP_TOKEN_SHA256,
+            expires_at=settings.LOCAL_BOOTSTRAP_EXPIRES_AT)
+    except (local_identity.LoginRejected, ValueError):
+        raise HTTPException(status_code=403, detail="A configuração inicial está indisponível ou é inválida") from None
+    _issue_cookie(response, token)
+    return {"user": user, "status": "administrator_created"}
+
+
+def _require_local_admin(principal: Principal):
+    _local_only()
+    if principal.issuer != local_identity.LOCAL_ISSUER or (
+        local_identity.user_role(principal.subject) != "admin"
+    ):
+        raise HTTPException(status_code=403, detail="Acesso de administrador necessário")
+
+
+@app.get("/api/admin/operations/summary")
+async def operator_session_summary(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    return summarize_sessions(sessions.values())
+
+
+@app.get("/api/admin/observability/status")
+async def observability_status(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    adapter = getattr(app.state, "telemetry", None)
+    return adapter.status() if adapter is not None else {
+        "enabled": False, "delivery": "not_initialized", "content_policy": "metadata_only"
+    }
+
+
+@app.post("/api/admin/observability/probe")
+async def observability_probe(principal: Principal = Depends(current_principal)):
+    """Only an authenticated local administrator can request a synthetic probe."""
+    _require_local_admin(principal)
+    adapter = getattr(app.state, "telemetry", None)
+    if adapter is None or not adapter.enabled:
+        return {"configured": False, "ingestion_accepted": False}
+    return await asyncio.to_thread(adapter.probe)
+
+
+@app.get("/api/admin/backups/status")
+async def backup_status(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    return {"enabled": backup_operations.enabled(), **backup_operations.get_status()}
+
+
+@app.post("/api/admin/backups/run")
+async def backup_run(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    try:
+        return await backup_operations.run_backup()
+    except RuntimeError:
+        raise HTTPException(status_code=409, detail="O backup está indisponível ou em execução") from None
+    except Exception:
+        raise HTTPException(status_code=503, detail="O backup falhou; consulte o status restrito") from None
+
+
+@app.post("/api/admin/backups/verify")
+async def backup_verify(principal: Principal = Depends(current_principal)):
+    _require_local_admin(principal)
+    try:
+        return await backup_operations.verify_latest_offsite()
+    except RuntimeError:
+        raise HTTPException(status_code=409, detail="Nenhum backup está pronto para verificação") from None
+    except Exception:
+        raise HTTPException(status_code=503, detail="A verificação da restauração falhou") from None
+
+
+@app.get("/api/admin/users")
+async def local_admin_users(principal: Principal = Depends(current_principal)):
+    _local_only()
+    if principal.issuer != local_identity.LOCAL_ISSUER:
+        raise HTTPException(status_code=403, detail="Acesso de administrador necessário")
+    try:
+        users = local_identity.list_users_for_admin(principal.subject)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Acesso de administrador necessário") from None
+    return {"users": users}
+
+
+@app.post("/api/auth/login")
+async def local_login(body: LocalLoginRequest, response: Response, request: Request):
+    _local_only()
+    try:
+        token, user = local_identity.login(body.email, body.password,
+                         request.client.host if request.client else "unknown")
+    except local_identity.LoginRejected as exc:
+        if exc.throttled:
+            raise HTTPException(status_code=429, detail="Tentativas em excesso. Tente novamente mais tarde.",
+                                headers={"Retry-After": "900"}) from None
+        raise HTTPException(status_code=401, detail="E-mail ou senha inválidos") from None
+    _issue_cookie(response, token)
+    return {"user": user}
+
+
+@app.get("/api/auth/me")
+async def local_me(request: Request):
+    _local_only()
+    account = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
+    if not account:
+        raise HTTPException(status_code=401, detail="Autenticação necessária")
+    return {"user": {"id": account["id"], "email": account["email"], "role": account["role"]}}
+
+
+@app.post("/api/auth/logout")
+async def local_logout(request: Request, response: Response):
+    _local_only()
+    local_identity.revoke_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
+    response.delete_cookie(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE), path="/",
+                           secure=settings.LOCAL_AUTH_COOKIE_SECURE, httponly=True,
+                           samesite="strict")
+    return {"status": "signed_out"}
+
+
+@app.post("/api/auth/change-password")
+async def local_change_password(body: LocalPasswordChangeRequest,
+                                request: Request, response: Response):
+    _local_only()
+    entry = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
+    if not entry:
+        raise HTTPException(status_code=401, detail="Autenticação necessária")
+    try:
+        token = local_identity.change_password(entry["id"], body.current_password,
+                                               body.new_password)
+    except local_identity.PasswordRejected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    _issue_cookie(response, token)
+    return {"status": "password_changed"}
+
+
+def _get_session(session_id: str, principal: Principal) -> dict:
     if session_id not in sessions:
         try:
             recovered = session_store.load(session_id, DebateEngineV3)
         except session_store.SessionCheckpointError as exc:
             # Preserve the damaged record for forensic recovery; never expose raw
             # checkpoint content, storage paths or internal traces to the client.
-            raise HTTPException(status_code=503, detail="Saved review checkpoint is unavailable.") from exc
+            raise HTTPException(status_code=503, detail="O ponto de salvamento da revisão está indisponível.") from exc
         if recovered is not None:
             sessions[session_id] = recovered
     if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=404, detail="Sessão não encontrada")
+    try:
+        require_session_owner(principal, sessions[session_id])
+    except AccessDenied:
+        raise HTTPException(status_code=404, detail="Sessão não encontrada") from None
     return sessions[session_id]
 
 
 @app.middleware("http")
 async def checkpoint_mutations(request: Request, call_next):
+    if settings.AUTH_MODE == "local" and request.url.path.startswith("/api/") and request.url.path not in ("/api/health", "/api/ready"):
+        if not _local_auth_configuration_valid():
+            return JSONResponse(status_code=503, content={"detail": "Local authentication is not configured"})
+        secret = settings.LOCAL_AUTH_PROXY_SECRET
+        origin = settings.LOCAL_AUTH_APP_ORIGIN
+        supplied = request.headers.get("X-Gilberto-Proxy-Auth", "")
+        if not compare_digest(supplied, secret):
+            return JSONResponse(status_code=403, content={"detail": "Proxy access denied"})
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            if request.headers.get("Origin") != origin:
+                return JSONResponse(status_code=403, content={"detail": "Untrusted request origin"})
     response = await call_next(request)
-    if request.url.path.startswith("/api/sessions"):
+    if request.url.path.startswith(("/api/sessions", "/api/auth")):
         # Legal documents and derived results must not be cached by browsers or proxies.
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
@@ -97,7 +389,7 @@ async def checkpoint_mutations(request: Request, call_next):
         if len(segments) == 4 and segments[:2] == ["api", "sessions"]:
             session = sessions.get(segments[2])
             if session is not None:
-                session_store.save(session)
+                _checkpoint(session)
     return response
 
 
@@ -105,22 +397,77 @@ async def checkpoint_mutations(request: Request, call_next):
 #  BACKGROUND TASK RUNNERS
 # ─────────────────────────────────────────────
 
+def _checkpoint(session):
+    """Persist first; optional observability never controls legal execution."""
+    session_store.save(session)
+    telemetry = getattr(app.state, "telemetry", None)
+    if telemetry is not None and telemetry.enabled:
+        try:
+            cursor = session.get("telemetry_cursor", 0)
+            for event in session["events"][cursor:]:
+                telemetry.submit(session["id"], event)
+            session["telemetry_cursor"] = len(session["events"])
+        except Exception:
+            pass  # Never expose exporter exceptions or fail legal review.
+
+
 def _append_event(session, event):
-    session["events"].append({**deepcopy(event), "event_id": len(session["events"]) + 1,
+    # Stable presentation IDs are joined from the actual engine role, including
+    # dynamically configured feedback advocates. No frontend role invention.
+    event = deepcopy(event)
+    cid = event.get("cluster")
+    role = event.get("agent") or event.get("voter")
+    if cid in CLUSTERS and role:
+        cluster = roster_for_engine(session["engine"], [cid])[0]
+        match = next((a for a in cluster["agents"] + [cluster["manager"]] if a["role"] == role), None)
+        if match:
+            event["agent_id"] = match["id"]
+    event.setdefault("run_id", session["id"])
+    event.setdefault("revision", session.get("feedback_rounds", 0))
+    event.setdefault("timestamp", datetime.now().isoformat())
+    session["events"].append({**deepcopy(event), **run_control.synchronize(session),
+                              "event_id": len(session["events"]) + 1,
                               "session_id": session["id"]})
+
+
+def _acknowledge_pause(session):
+    """A pause is effective only after dispatched provider coroutines have drained."""
+    if (session["status"] in ("running", "awaiting_gate")
+            and session.get("run_control") == "pause_requested"
+            and not session.get("pause_acknowledged")
+            and not session["engine"]._active_provider_calls):
+        session["pause_acknowledged"] = True
+        _append_event(session, {"type": "RUN_PAUSED", "timestamp": datetime.now().isoformat(),
+                               "message": "O envio ao provedor está pausado. As conclusões concluídas e as revisões pendentes foram mantidas."})
+        _checkpoint(session)
+
+
+def _check_control_version(session, expected_version):
+    # No await occurs between this guard, the command and its checkpoint.
+    current = run_control.synchronize(session)["control_version"]
+    if expected_version is not None and expected_version != current:
+        raise HTTPException(status_code=409, detail="O estado da execução mudou; atualize a página antes de enviar este comando")
 
 
 async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
     """One accountable task per session; re-analysis reuses the same task and budget."""
     session = sessions[session_id]
     engine = session["engine"]
+    engine._on_dispatch_idle = lambda: _acknowledge_pause(session)
+    if session.get("run_control") == "preparing":
+        session["run_control"] = "running"
+        _append_event(session, {"type": "RUN_STARTED", "timestamp": datetime.now().isoformat()})
+        _checkpoint(session)
     try:
         while True:
             stream = (engine.run_debate(document_text) if feedback is None else
                       engine.process_feedback(feedback, document_text))
             try:
                 async for event in stream:
-                    _append_event(session, event)
+                    if session["status"] in ("cancellation_requested", "cancelled"):
+                        # A cancelled producer may still have queued output. It
+                        # cannot overwrite authoritative terminal state/results.
+                        raise asyncio.CancelledError()
                     kind = event["type"]
                     if kind == "ROUND_COMPLETE":
                         session["rounds"].append({
@@ -140,14 +487,25 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                         session["gate_records"] = engine.get_all_gate_records()
                     elif kind == "ERROR":
                         raise RuntimeError(event.get("message", "Analysis failed"))
-                    session_store.save(session)
+                    _append_event(session, event)
+                    _checkpoint(session)
                 break
             except ReanalysisRequested as exc:
                 if session["feedback_rounds"] >= settings.MAX_FEEDBACK_ROUNDS:
-                    raise WorkflowError("Re-analysis limit reached; retained findings require manual review") from exc
+                    raise WorkflowError("Limite de reanálises atingido; as conclusões mantidas exigem revisão manual") from exc
                 session["feedback_rounds"] += 1
                 session["status"] = "running"
                 feedback = str(exc)
+    except asyncio.CancelledError:
+        if session["status"] == "cancellation_requested":
+            _finish_cancel(session)
+        elif session["status"] != "cancelled":
+            session["status"] = "error"
+            session["interrupted"] = True
+            session["error"] = "Execution was interrupted. Saved findings are retained; start a new review to continue safely."
+            _append_event(session, {"type": "ERROR", "message": session["error"],
+                                    "timestamp": datetime.now().isoformat()})
+        raise
     except Exception as exc:
         # Do not expose provider payloads or contract excerpts in operational errors.
         session["status"] = "error"
@@ -157,10 +515,11 @@ async def _run_analysis_bg(session_id: str, document_text: str, feedback=None):
                                 "error_type": type(exc).__name__,
                                 "timestamp": datetime.now().isoformat()})
     finally:
+        engine._on_dispatch_idle = None
         engine._running = False
         session["execution_metrics"] = engine.get_metrics()
         session["gate_records"] = engine.get_all_gate_records()
-        session_store.save(session)
+        _checkpoint(session)
 
 
 # ─────────────────────────────────────────────
@@ -174,6 +533,8 @@ async def health():
         "session_storage": "sqlite_checkpoint",
         "provider": {"name": "Maritaca", "model": settings.MARITACA_MODEL,
                      "configured": bool(settings.MARITACA_API_KEY.strip()), "transport": "direct_chat_completion"},
+        "backup_provider": {"configured": backup_configured(), "requires_explicit_consent": True,
+                            "automatic_failover": False},
         "version": "3.0.0",
         "architecture": "parallel_clusters_with_devils_advocate",
         "active_clusters": settings.active_clusters_list,
@@ -196,42 +557,75 @@ async def health():
 async def ready():
     # Liveness and readiness differ: don't route users to an instance that
     # cannot read their persisted legal review checkpoints.
+    if settings.AUTH_MODE == "local":
+        if not _local_auth_configuration_valid():
+            raise HTTPException(status_code=503, detail="A autenticação local não está configurada")
+        try:
+            with closing(local_identity.connect()) as identity_db:
+                identity_db.execute("SELECT COUNT(*) FROM identity_users").fetchone()
+        except Exception:
+            raise HTTPException(status_code=503, detail="O armazenamento de identidades está indisponível") from None
     try:
         session_store.is_ready()
     except Exception:
-        raise HTTPException(status_code=503, detail="Session storage is unavailable")
+        raise HTTPException(status_code=503, detail="O armazenamento de sessões está indisponível") from None
     return {"status": "ready"}
 
 
 @app.post("/api/sessions", response_model=SessionResponse)
-async def create_session(request: SessionCreateRequest):
+async def create_session(request: SessionCreateRequest, principal: Principal = Depends(current_principal)):
     """Create a new debate session with specified configuration."""
     if request.num_rounds > settings.MAX_ROUNDS:
-        raise HTTPException(status_code=422, detail="Requested rounds exceed the configured limit")
+        raise HTTPException(status_code=422, detail="O número de rodadas solicitado excede o limite configurado")
     if request.jurisdiction != "BR":
-        raise HTTPException(status_code=422, detail="Only Brazilian jurisdiction is supported")
+        raise HTTPException(status_code=422, detail="Somente a jurisdição brasileira é suportada")
+    if request.provider_mode == "backup":
+        if not request.backup_consent:
+            raise HTTPException(status_code=422, detail="Autorize a transferência ao provedor reserva configurado antes de iniciar uma nova revisão jurídica")
+        if not backup_configured():
+            raise HTTPException(status_code=503, detail="O provedor reserva autorizado não está configurado")
+        if (settings.MAX_REVIEW_ESTIMATED_USD > 0 and
+                (settings.FALLBACK_LLM_INPUT_PRICE_USD_PER_1M <= 0 or
+                 settings.FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M <= 0)):
+            raise HTTPException(status_code=503, detail="O teto de custo configurado exige os preços do provedor reserva")
     session_id = str(uuid.uuid4())
     engine = DebateEngineV3(
         session_id=session_id,
         num_agents=request.num_agents,
         num_rounds=request.num_rounds,
         workflow_type=request.workflow_type.value if hasattr(request.workflow_type, 'value') else str(request.workflow_type),
+        provider_mode=request.provider_mode,
+        backup_consent=request.backup_consent,
     )
 
     engine.review_depth = request.review_depth
-    config = request.model_dump()
+    config = request.model_dump(exclude={'user_id'})
     active = [cid for cid in engine.feedback_agents if cid in settings.active_clusters_list]
     config["active_clusters"] = [{"id": cid, "name": CLUSTERS[cid]["name"],
                                   "agents": 1 if request.review_depth == "focused" else len(CLUSTERS[cid]["agents"])} for cid in active]
     config["num_agents"] = sum(item["agents"] for item in config["active_clusters"])
+    config["agent_roster"] = roster_for_engine(engine, active)
+    config["coordination_roster"] = coordination_roster()
     config["initial_model_calls"] = sum((2 * c["agents"] + 1) if c["agents"] > 1 else 2 for c in config["active_clusters"]) * request.num_rounds + 2 * request.num_rounds
     config["max_feedback_rounds"] = settings.MAX_FEEDBACK_ROUNDS
     config["model_call_budget"] = settings.MAX_MODEL_CALLS
+    config["cost_preflight"] = estimate_plan(
+        config["initial_model_calls"],
+        (settings.FALLBACK_LLM_MAX_COMPLETION_TOKENS if request.provider_mode == "backup" and settings.FALLBACK_LLM_MODEL == "gpt-6.1-sol"
+         else settings.MAX_TOKENS),
+        input_usd_per_million=(settings.FALLBACK_LLM_INPUT_PRICE_USD_PER_1M if request.provider_mode == "backup"
+                               else settings.LLM_INPUT_PRICE_USD_PER_1M),
+        output_usd_per_million=(settings.FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M if request.provider_mode == "backup"
+                                else settings.LLM_OUTPUT_PRICE_USD_PER_1M),
+        hard_cap_usd=settings.MAX_REVIEW_ESTIMATED_USD,
+    )
     if not active:
-        raise HTTPException(status_code=503, detail="No specialist workstreams are configured")
+        raise HTTPException(status_code=503, detail="Nenhuma frente de análise especializada está configurada")
 
     sessions[session_id] = {
         "id": session_id,
+        "owner_issuer": principal.issuer,
+        "owner_subject": principal.subject,
         "engine": engine,
         "status": "created",
         "created_at": datetime.now().isoformat(),
@@ -246,10 +640,16 @@ async def create_session(request: SessionCreateRequest):
         "error": None,
         "task": None,
         "feedback_rounds": 0,
+        "run_control": "running",
+        "execution_state": "CREATED",
+        "control_version": 0,
+        "pause_acknowledged": False,
+        "started_at": None,
+        "human_votes": [],
     }
 
     # Persist the new session even when created outside the HTTP middleware.
-    session_store.save(sessions[session_id])
+    _checkpoint(sessions[session_id])
     return SessionResponse(
         session_id=session_id,
         status="created",
@@ -258,16 +658,17 @@ async def create_session(request: SessionCreateRequest):
 
 
 @app.post("/api/sessions/{session_id}/start")
-async def start_session(session_id: str, document: UploadFile = File(...)):
+async def start_session(session_id: str, document: UploadFile = File(...),
+                        principal: Principal = Depends(current_principal)):
     """Upload the legal document and start the debate."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
 
     if session["status"] != "created":
-        raise HTTPException(status_code=400, detail="Session already started")
+        raise HTTPException(status_code=400, detail="A sessão já foi iniciada")
 
     content = await document.read(settings.MAX_UPLOAD_BYTES + 1)
     if len(content) > settings.MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Document exceeds the 10 MB upload limit")
+        raise HTTPException(status_code=413, detail="O documento excede o limite de envio de 10 MB")
 
     try:
         document_text = extract_document_text(document.filename or "", content)
@@ -276,7 +677,7 @@ async def start_session(session_id: str, document: UploadFile = File(...)):
 
     # Reading the upload yields; check again before committing the start.
     if session["status"] != "created":
-        raise HTTPException(status_code=409, detail="Session already started")
+        raise HTTPException(status_code=409, detail="A sessão já foi iniciada")
     # Fail before paid-model dispatch when the single-worker execution pool is full.
     # Gate-paused analyses still occupy resources and are counted.
     active = sum(
@@ -286,11 +687,15 @@ async def start_session(session_id: str, document: UploadFile = File(...)):
     if active >= settings.MAX_CONCURRENT_ANALYSES:
         raise HTTPException(
             status_code=429,
-            detail="Analysis capacity is full. Try again after an active review finishes.",
+            detail="A capacidade de análise está esgotada. Tente novamente após a conclusão de uma revisão em andamento.",
         )
     session["document_text"] = document_text
     session["document_name"] = document.filename
     session["status"] = "running"
+    session["run_control"] = "preparing"
+    session["started_at"] = datetime.now().isoformat()
+    _append_event(session, {"type": "RUN_PREPARING", "timestamp": session["started_at"]})
+    _checkpoint(session)
 
     session["task"] = asyncio.create_task(_run_analysis_bg(session_id, document_text))
 
@@ -305,26 +710,39 @@ async def start_session(session_id: str, document: UploadFile = File(...)):
 
 
 @app.get("/api/sessions/{session_id}/stream")
-async def stream_events(session_id: str, request: Request, cursor: int = Query(default=0, ge=0)):
+async def stream_events(session_id: str, request: Request, cursor: int = Query(default=0, ge=0),
+                        protocol: str = Query(default="native", pattern="^(native|ag-ui)$"),
+                        principal: Principal = Depends(current_principal)):
     """Server-Sent Events stream with cursor-based resume."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     if cursor > len(session["events"]):
-        raise HTTPException(status_code=409, detail="Event cursor exceeds session history")
+        raise HTTPException(status_code=409, detail="O cursor de eventos excede o histórico da sessão")
 
     async def generator():
         session = sessions[session_id]
         idx = cursor
 
+        if protocol == "ag-ui":
+            yield f"data: {json.dumps(state_snapshot(session))}\n\n"
+
         heartbeat_at = asyncio.get_running_loop().time()
         while not await request.is_disconnected():
+            if principal.expires_at is not None and time() >= principal.expires_at:
+                break
+            if settings.AUTH_MODE == "local":
+                active = local_identity.resolve_session(request.cookies.get(local_identity.cookie_name(settings.LOCAL_AUTH_COOKIE_SECURE)))
+                if not active or active["id"] != principal.subject:
+                    break
             events = session["events"]
 
             while idx < len(events):
-                yield f"id: {idx + 1}\ndata: {json.dumps(events[idx])}\n\n"
+                wire_event = project_event(events[idx]) if protocol == "ag-ui" else events[idx]
+                yield f"id: {idx + 1}\ndata: {json.dumps(wire_event)}\n\n"
                 idx += 1
 
-            if session["status"] in ("completed", "error"):
-                yield f"data: {json.dumps({'type': 'STREAM_END', 'timestamp': datetime.now().isoformat()})}\n\n"
+            if session["status"] in ("completed", "error", "cancelled"):
+                terminal = stream_end(session) if protocol == "ag-ui" else {'type': 'STREAM_END', 'timestamp': datetime.now().isoformat()}
+                yield f"data: {json.dumps(terminal)}\n\n"
                 break
 
             if asyncio.get_running_loop().time() - heartbeat_at >= 15:
@@ -344,12 +762,16 @@ async def stream_events(session_id: str, request: Request, cursor: int = Query(d
 
 
 @app.get("/api/sessions/{session_id}/status")
-async def get_status(session_id: str):
+async def get_status(session_id: str, principal: Principal = Depends(current_principal)):
     """Get current session status."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
+    config = deepcopy(session["config"])
+    config["agent_roster"] = roster_for_engine(session["engine"], [c["id"] for c in config.get("active_clusters", [])])
+    config["coordination_roster"] = coordination_roster()
     return {
         "session_id": session_id,
         "status": session["status"],
+        "config": config,
         "current_round": session["engine"].current_round,
         "total_rounds": session["config"]["num_rounds"],
         "events_count": len(session["events"]),
@@ -358,19 +780,42 @@ async def get_status(session_id: str):
         "pending_gates": session["pending_gates"],
         "gate_records_count": len(session["engine"].get_all_gate_records()),
         "feedback_rounds": session["feedback_rounds"],
+        "run_control": session.get("run_control", "running"),
+        **run_control.response(session),
+        "started_at": session.get("started_at"),
+        "created_at": session.get("created_at"),
+        "last_checkpoint_at": session.get("last_checkpoint_at"),
+        "execution_metrics": session["engine"].get_metrics(),
+        "human_vote_count": len(session.get("human_votes", [])),
         "error": session["error"],
     }
 
 
+@app.get("/api/sessions/{session_id}/ag-ui/capabilities")
+async def agui_capabilities(session_id: str, principal: Principal = Depends(current_principal)):
+    """Authorized declaration; read-only SSE projection, not RunAgent POST."""
+    _get_session(session_id, principal)
+    return {
+        "protocol_version": "1.0", "mode": "read_only_journal_projection",
+        "stream_protocol": "ag-ui", "supports_run_agent_post": False,
+        "native_event_types": ["RUN_STARTED", "RUN_FINISHED", "RUN_ERROR",
+                               "STEP_STARTED", "STEP_FINISHED", "STATE_SNAPSHOT"],
+        "custom_domain_events": True, "tool_events": "not_emitted_without_real_tool_contracts",
+        "journal_cursor_authoritative": True,
+        "run_finished_only_after_authorized_final_acceptance": True,
+    }
+
+
 @app.get("/api/sessions/{session_id}/results")
-async def get_results(session_id: str):
+async def get_results(session_id: str, principal: Principal = Depends(current_principal)):
     """Get full analysis results."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     engine: DebateEngineV3 = session["engine"]
 
     return {
         "session_id": session_id,
         "status": session["status"],
+        **run_control.response(session),
         "config": session["config"],
         "rounds": session["rounds"],
         "total_rounds": len(session["rounds"]),
@@ -381,15 +826,16 @@ async def get_results(session_id: str):
         "devil_advocate": engine.devil_advocate_output.get("parsed", {}) if engine.devil_advocate_output else None,
         "final_synthesis": engine.master_summaries[-1].get("parsed", {}) if engine.master_summaries else None,
         "gate_records": engine.get_all_gate_records(),
+        "human_votes": session.get("human_votes", []),
         "execution_metrics": engine.get_metrics(),
-        "partial": session["status"] == "error",
+        "partial": session["status"] in ("error", "cancellation_requested", "cancelled"),
     }
 
 
 @app.get("/api/sessions/{session_id}/gates")
-async def get_gates(session_id: str):
+async def get_gates(session_id: str, principal: Principal = Depends(current_principal)):
     """Get pending and resolved gates."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     engine: DebateEngineV3 = session["engine"]
 
     return {
@@ -400,37 +846,37 @@ async def get_gates(session_id: str):
 
 
 @app.post("/api/sessions/{session_id}/gate-decision")
-async def submit_gate_decision(session_id: str, request: GateDecisionRequest):
+async def submit_gate_decision(session_id: str, request: GateDecisionRequest, principal: Principal = Depends(current_principal)):
     """Submit human expert decision for a gate."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     engine: DebateEngineV3 = session["engine"]
 
     if request.session_id != session_id:
-        raise HTTPException(status_code=409, detail="Decision belongs to another session")
+        raise HTTPException(status_code=409, detail="A decisão pertence a outra sessão")
     if session["status"] != "awaiting_gate":
-        raise HTTPException(status_code=409, detail="Session is not awaiting review")
+        raise HTTPException(status_code=409, detail="A sessão não está aguardando revisão")
     matches = [g for g in engine.get_pending_gates() if g["gate_number"] == request.gate_number
                and (request.gate_id is None or g["gate_id"] == request.gate_id)]
     if len(matches) != 1:
-        raise HTTPException(status_code=409, detail="Review is stale or ambiguous; refresh the pending reviews")
+        raise HTTPException(status_code=409, detail="A revisão está desatualizada ou é ambígua; atualize as revisões pendentes")
     if not request.reasoning.strip():
-        raise HTTPException(status_code=422, detail="Review reasoning is required")
+        raise HTTPException(status_code=422, detail="A fundamentação da revisão é obrigatória")
     if request.decision.value == "request_reanalysis" and session["feedback_rounds"] >= settings.MAX_FEEDBACK_ROUNDS:
-        raise HTTPException(status_code=409, detail="Re-analysis limit reached; review manually or start a new analysis")
+        raise HTTPException(status_code=409, detail="Limite de reanálises atingido; revise manualmente ou inicie uma nova análise")
     if request.decision.value == "override" and request.override_score is None:
-        raise HTTPException(status_code=422, detail="An override score is required")
+        raise HTTPException(status_code=422, detail="É necessário informar a pontuação de substituição")
     if request.override_classification and request.override_score is not None:
         if request.override_classification.value != classification_for(request.override_score):
-            raise HTTPException(status_code=422, detail="Override classification does not match its score")
+            raise HTTPException(status_code=422, detail="A classificação de substituição não corresponde à pontuação")
     gate_id = matches[0]["gate_id"]
     result = engine.submit_gate_decision(
         gate_number=request.gate_number, gate_id=gate_id,
         decision=request.decision.value, reasoning=request.reasoning,
-        human_review_id=request.human_review_id, override_score=request.override_score,
+        human_review_id=principal.subject, override_score=request.override_score,
         override_classification=request.override_classification.value if request.override_classification else None,
     )
     if result is None:
-        raise HTTPException(status_code=409, detail="Review already resolved")
+        raise HTTPException(status_code=409, detail="Revisão já resolvida")
     # Keep the model result intact and record the expert adjustment separately.
     if request.decision.value == "override" and engine.master_summaries:
         synthesis = engine.master_summaries[-1]["parsed"]
@@ -440,7 +886,7 @@ async def submit_gate_decision(session_id: str, request: GateDecisionRequest):
         synthesis.update(final_score=request.override_score,
                          final_classification=classification_for(request.override_score),
                          human_override={"gate_id": gate_id, "reasoning": request.reasoning,
-                                         "reviewer": request.human_review_id})
+                                         "reviewer": principal.subject})
     if (request.decision.value == "override" and request.override_score >= 8
             and settings.GATE_3_ALWAYS_FOR_CRITICO
             and not any(g["gate_number"] == 3 and g.get("round") == engine.current_round
@@ -468,38 +914,170 @@ async def submit_gate_decision(session_id: str, request: GateDecisionRequest):
 
 
 @app.post("/api/sessions/{session_id}/feedback")
-async def submit_feedback(session_id: str, request: FeedbackRequest):
+async def submit_feedback(session_id: str, request: FeedbackRequest, principal: Principal = Depends(current_principal)):
     """Submit user feedback to trigger cluster re-analysis."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
 
     if session["status"] != "awaiting_feedback" or (session["task"] and not session["task"].done()):
-        raise HTTPException(status_code=400, detail="Session is not awaiting feedback")
+        raise HTTPException(status_code=400, detail="A sessão não está aguardando comentários")
 
     if session["feedback_rounds"] >= settings.MAX_FEEDBACK_ROUNDS:
-        raise HTTPException(status_code=409, detail="Re-analysis limit reached")
+        raise HTTPException(status_code=409, detail="Limite de reanálises atingido")
     session["feedback_rounds"] += 1
     session["status"] = "running"
     session["error"] = None
+    session["run_control"] = "running"
+    session["pause_acknowledged"] = False
+    session["engine"]._dispatch_allowed.set()
     session["task"] = asyncio.create_task(_run_analysis_bg(session_id, session["document_text"], request.feedback))
 
     return {
         "status": "feedback_received",
         "session_id": session_id,
-        "message": "Feedback routed to appropriate cluster. Re-analysis in progress.",
+        "message": "Comentário encaminhado ao grupo competente. Reanálise em andamento.",
     }
 
 
+def _finish_cancel(session):
+    if session["status"] != "cancellation_requested":
+        return
+    session["status"] = "cancelled"
+    session["error"] = None
+    session.get("cancellation", {}).update(state="confirmed")
+    _append_event(session, {"type": "CANCELLED",
+                            "message": "Orquestração interrompida. Uma chamada ao provedor já em curso ainda pode ser concluída.",
+                            "timestamp": datetime.now().isoformat()})
+    _checkpoint(session)
+
+
+@app.post("/api/sessions/{session_id}/pause")
+async def pause_dispatch(session_id: str, principal: Principal = Depends(current_principal),
+                         expected_version: Optional[int] = None):
+    """Stop NEW AI dispatch at the next async boundary, preserving in-flight calls."""
+    session = _get_session(session_id, principal)
+    _check_control_version(session, expected_version)
+    if session["status"] != "running":
+        raise HTTPException(status_code=409, detail="Somente uma revisão em andamento pode pausar o envio")
+    if session.get("run_control") == "pause_requested":
+        return run_control.response(session)
+    session["run_control"] = "pause_requested"
+    session["pause_acknowledged"] = False
+    session["engine"]._dispatch_allowed.clear()
+    _append_event(session, {"type": "RUN_PAUSE_REQUESTED", "timestamp": datetime.now().isoformat(),
+                            "message": "Novas requisições à IA serão pausadas no próximo ponto seguro de envio. Uma requisição em curso ainda pode ser concluída."})
+    _checkpoint(session)
+    _acknowledge_pause(session)
+    return run_control.response(session)
+
+
+@app.post("/api/sessions/{session_id}/resume")
+async def resume_dispatch(session_id: str, principal: Principal = Depends(current_principal),
+                          expected_version: Optional[int] = None):
+    """Allow remaining queued tasks to dispatch; do not replay completed calls."""
+    session = _get_session(session_id, principal)
+    _check_control_version(session, expected_version)
+    if session["status"] != "running" or session.get("run_control") != "pause_requested":
+        raise HTTPException(status_code=409, detail="A revisão não está pausada ou não pode ser retomada")
+    if session["engine"]._provider_aborted or session["engine"]._provider_failure:
+        raise HTTPException(status_code=409, detail="Falha ou cancelamento no provedor exige uma nova revisão")
+    session["run_control"] = "resuming"
+    session["pause_acknowledged"] = False
+    _append_event(session, {"type": "RUN_RESUMING", "timestamp": datetime.now().isoformat()})
+    _checkpoint(session)
+    session["run_control"] = "running"
+    session["engine"]._dispatch_allowed.set()
+    _append_event(session, {"type": "RUN_RESUMED", "timestamp": datetime.now().isoformat(),
+                            "message": "Envio ao modelo retomado pelo titular da sessão."})
+    _checkpoint(session)
+    return run_control.response(session)
+
+
+@app.post("/api/sessions/{session_id}/human-votes")
+async def cast_human_vote(session_id: str, request: HumanVoteRequest,
+                          principal: Principal = Depends(current_principal)):
+    """An authenticated, non-binding vote on a specific model-analysis event."""
+    session = _get_session(session_id, principal)
+    if session["status"] not in ("running", "awaiting_gate", "awaiting_feedback"):
+        raise HTTPException(status_code=409, detail="Esta revisão não aceita mais votos")
+    events = session["events"]
+    if request.event_id > len(events):
+        raise HTTPException(status_code=404, detail="Evento de análise indisponível")
+    target = events[request.event_id - 1]
+    if (target.get("event_id") != request.event_id or
+            target.get("type") != "AGENT_ANALYSIS_COMPLETE"):
+        raise HTTPException(status_code=422, detail="Selecione uma análise de agente efetivamente concluída para votar")
+    if request.decision != "agree" and not request.reasoning.strip():
+        raise HTTPException(status_code=422, detail="Apresente a fundamentação ao discordar ou ao solicitar provas")
+    votes = session.setdefault("human_votes", [])
+    if any(v["event_id"] == request.event_id and v["reviewer"] == principal.subject for v in votes):
+        raise HTTPException(status_code=409, detail="Já existe um voto registrado para esta análise")
+    if len(votes) >= 100:
+        raise HTTPException(status_code=429, detail="Limite de votos humanos atingido")
+    record = {
+        "event_id": request.event_id, "reviewer": principal.subject,
+        "decision": request.decision, "reasoning": request.reasoning.strip(),
+        "agent": target.get("agent"), "cluster": target.get("cluster"),
+        "round": target.get("round"), "timestamp": datetime.now().isoformat(),
+        "effect": "advisory_only_not_an_agent_vote",
+    }
+    votes.append(record)
+    _append_event(session, {"type": "HUMAN_VOTE_RECORDED", **record,
+                            "target_event_id": request.event_id})
+    _checkpoint(session)
+    return {"status": "recorded", "vote": record}
+
+
+@app.post("/api/sessions/{session_id}/cancel")
+async def cancel_session(session_id: str, principal: Principal = Depends(current_principal),
+                         expected_version: Optional[int] = None):
+    """Stop new dispatch. Cannot undo or forcibly terminate an in-flight thread."""
+    session = _get_session(session_id, principal)
+    if session["status"] in ("cancelled", "cancellation_requested"):
+        # Stop remains idempotent even when the caller lost its original receipt.
+        return {"status": session["status"], **run_control.response(session)}
+    _check_control_version(session, expected_version)
+    if session["status"] not in ("created", "running", "awaiting_gate"):
+        raise HTTPException(status_code=409, detail="Esta revisão não pode ser cancelada no estado atual")
+    session["engine"]._provider_aborted = True
+    session["engine"]._dispatch_allowed.set()  # Wake paused queue so cancellation drains.
+    session["run_control"] = "cancelled"
+    session["status"] = "cancellation_requested"
+    session["cancellation"] = {
+        "requested_by_issuer": principal.issuer,
+        "requested_by_subject": principal.subject,
+        "requested_at": datetime.now().isoformat(),
+        "state": "requested",
+    }
+    _append_event(session, {"type": "CANCEL_REQUESTED",
+                            "message": "Interrompendo novos envios ao modelo e às ferramentas",
+                            "timestamp": datetime.now().isoformat()})
+    _checkpoint(session)
+    session["cancellation"]["state"] = "stopping"
+    _append_event(session, {"type": "RUN_STOPPING", "timestamp": datetime.now().isoformat()})
+    _checkpoint(session)
+    task = session.get("task")
+    if task and not task.done():
+        task.add_done_callback(lambda _: _finish_cancel(session))
+        task.cancel()
+    else:
+        _finish_cancel(session)
+    return {"status": session["status"], **run_control.response(session)}
+
+
 @app.post("/api/sessions/{session_id}/accept")
-async def accept_result(session_id: str):
+async def accept_result(session_id: str, principal: Principal = Depends(current_principal)):
     """Mark the session as complete."""
-    session = _get_session(session_id)
+    session = _get_session(session_id, principal)
     if session["status"] == "completed":
         return {"status": "completed", "session_id": session_id}
     if (session["status"] != "awaiting_feedback" or session["pending_gates"]
             or session["engine"].gate_evaluator.has_pending_gates()
             or not session["engine"].master_summaries
             or (session["task"] and not session["task"].done())):
-        raise HTTPException(status_code=409, detail="Finish the analysis and all required reviews before acceptance")
+        raise HTTPException(status_code=409, detail="Conclua a análise e todas as revisões obrigatórias antes do aceite")
     session["status"] = "completed"
+    # Only this authorized acceptance produces AG-UI RUN_FINISHED. Intermediate
+    # DEBATE_COMPLETE still awaits human review and does not finish the run.
+    _append_event(session, {"type": "FINAL_ACCEPTED", "timestamp": datetime.now().isoformat()})
     return {"status": "completed", "session_id": session_id}
 

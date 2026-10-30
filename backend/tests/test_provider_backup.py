@@ -1,0 +1,166 @@
+"""Backup continuity: only operator-approved hosts, per-review consent and no replay."""
+import unittest
+from unittest.mock import patch
+import httpx
+from config import settings
+from provider import BackupClient, ProviderError, approved_backup_url, backup_configured
+from engines.debate_engine_v3 import DebateEngineV3
+from models.schemas import SessionCreateRequest
+import main
+
+
+class BackupProviderSafetyTests(unittest.TestCase):
+    def setUp(self):
+        patches = (
+            patch.object(settings, "FALLBACK_LLM_BASE_URL", "https://llm.example.test/v1"),
+            patch.object(settings, "FALLBACK_LLM_ALLOWED_HOSTS", "llm.example.test"),
+            patch.object(settings, "FALLBACK_LLM_MODEL", "operator-approved-model"),
+            patch.object(settings, "FALLBACK_LLM_API_KEY", "backup-fixture-secret"),
+        )
+        for item in patches:
+            item.start()
+            self.addCleanup(item.stop)
+
+    def test_requires_exact_operator_host_approval_and_https(self):
+        self.assertEqual(approved_backup_url(), "https://llm.example.test/v1/chat/completions")
+        for address in ("http://llm.example.test/v1", "https://127.0.0.1/v1",
+                        "https://evil.example.test/v1", "https://llm.example.test.evil/v1",
+                        "https://llm.example.test:8080/v1", "https://a@llm.example.test/v1",
+                        "https://llm.example.test/v1?x=1", "https://localhost/v1",
+                        "https://llm.example.test/other"):
+            with self.subTest(address=address), patch.object(settings, "FALLBACK_LLM_BASE_URL", address):
+                self.assertFalse(backup_configured(), address)
+
+    def test_backup_one_request_and_no_secret_or_document_logging(self):
+        body = {"choices": [{"message": {"content": '{"score": 3}'}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+        with patch("provider.httpx.Client") as client:
+            call = client.return_value.__enter__.return_value.post
+            call.return_value = httpx.Response(200, json=body)
+            backup = BackupClient()
+            self.assertEqual(backup.call([{"role": "user", "content": "confidential-fixture"}]), '{"score": 3}')
+            call.assert_called_once()
+            self.assertEqual(call.call_args.kwargs["headers"]["Authorization"], "Bearer backup-fixture-secret")
+            self.assertEqual(call.call_args.kwargs["json"]["model"], "operator-approved-model")
+            self.assertEqual(backup.usage_snapshot()["reported_calls"], 1)
+
+    def test_outage_does_not_call_maritaca_or_replay(self):
+        with patch("provider.httpx.Client") as client:
+            post = client.return_value.__enter__.return_value.post
+            post.return_value = httpx.Response(503, text="secret or confidential-fixture")
+            with self.assertLogs("provider", level="WARNING") as logged:
+                with self.assertRaises(ProviderError) as raised:
+                    BackupClient().call([{"role": "user", "content": "confidential-fixture"}])
+            self.assertEqual(raised.exception.code, "provider_unavailable")
+            self.assertEqual(post.call_count, 1)
+            self.assertNotIn("confidential-fixture", str(raised.exception))
+            self.assertNotIn("secret", " ".join(logged.output))
+            self.assertNotIn("confidential-fixture", " ".join(logged.output))
+
+    def test_unconfigured_backup_is_fail_closed(self):
+        with patch.object(settings, "FALLBACK_LLM_ALLOWED_HOSTS", ""):
+            with patch("provider.httpx.Client") as client:
+                with self.assertRaises(ProviderError):
+                    BackupClient().call([])
+                client.assert_not_called()
+
+
+class BackupSessionSelectionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_no_fallback_without_separate_owner_consent_and_configuration(self):
+        p = main.Principal("https://issuer.example.test", "owner")
+        with (patch.object(settings, "FALLBACK_LLM_BASE_URL", "https://llm.example.test/v1"),
+              patch.object(settings, "FALLBACK_LLM_ALLOWED_HOSTS", "llm.example.test"),
+              patch.object(settings, "FALLBACK_LLM_MODEL", "approved"),
+              patch.object(settings, "FALLBACK_LLM_API_KEY", "private")):
+            with self.assertRaises(main.HTTPException) as denied:
+                await main.create_session(SessionCreateRequest(provider_mode="backup"), p)
+            self.assertEqual(denied.exception.status_code, 422)
+            result = await main.create_session(
+                SessionCreateRequest(provider_mode="backup", backup_consent=True), p)
+            self.assertEqual(result.config["provider_mode"], "backup")
+            self.assertEqual(main.sessions[result.session_id]["engine"].provider_mode, "backup")
+        with self.assertRaises(main.HTTPException) as denied:
+            await main.create_session(SessionCreateRequest(provider_mode="backup", backup_consent=True), p)
+        self.assertEqual(denied.exception.status_code, 503)
+
+    async def test_primary_remains_default(self):
+        p = main.Principal("https://issuer.example.test", "owner")
+        result = await main.create_session(SessionCreateRequest(), p)
+        self.assertEqual(result.config["provider_mode"], "primary")
+        self.assertEqual(main.sessions[result.session_id]["engine"].provider_mode, "primary")
+
+    async def test_engine_backup_is_bound_for_whole_review(self):
+        engine = DebateEngineV3("one", 5, 1, "contract_review", provider_mode="backup")
+        self.assertIsInstance(engine.llm, BackupClient)
+        self.assertEqual(engine.provider_mode, "backup")
+
+
+class OpenAISolMediumTests(unittest.TestCase):
+    def setUp(self):
+        fixtures = {
+            "FALLBACK_LLM_API_KEY": "synthetic-openai-only-key",
+            "FALLBACK_LLM_BASE_URL": "https://api.openai.com/v1",
+            "FALLBACK_LLM_ALLOWED_HOSTS": "api.openai.com",
+            "FALLBACK_LLM_MODEL": "gpt-6.1-sol",
+            "FALLBACK_LLM_REASONING_EFFORT": "medium",
+            "FALLBACK_LLM_MAX_COMPLETION_TOKENS": 8192,
+        }
+        for name, value in fixtures.items():
+            ctx = patch.object(settings, name, value)
+            ctx.start()
+            self.addCleanup(ctx.stop)
+
+    def test_openai_chat_completion_sends_medium_without_unsupported_parameters(self):
+        self.assertEqual(approved_backup_url(), "https://api.openai.com/v1/chat/completions")
+        response = httpx.Response(200, json={
+            "choices": [{"finish_reason": "stop",
+                         "message": {"content": '{"score": 3}'}}],
+            "usage": {"prompt_tokens": 28, "completion_tokens": 152,
+                      "completion_tokens_details": {"reasoning_tokens": 100}},
+        })
+        with patch("provider.httpx.Client") as client:
+            post = client.return_value.__enter__.return_value.post
+            post.return_value = response
+            answer = BackupClient().call([{"role": "user", "content": "synthetic contract"}])
+            self.assertEqual(answer, '{"score": 3}')
+            post.assert_called_once()
+            self.assertEqual(post.call_args.args[0], approved_backup_url())
+            payload = post.call_args.kwargs["json"]
+            self.assertEqual(payload["model"], "gpt-6.1-sol")
+            self.assertEqual(payload["reasoning_effort"], "medium")
+            self.assertEqual(payload["max_completion_tokens"], 8192)
+            self.assertNotIn("temperature", payload)
+            self.assertNotIn("max_tokens", payload)
+            self.assertNotIn("reasoning", payload)
+            self.assertEqual(post.call_args.kwargs["headers"]["Authorization"],
+                             "Bearer synthetic-openai-only-key")
+
+    def test_sol_must_use_openai_host_even_when_other_host_allowlisted(self):
+        with (patch.object(settings, "FALLBACK_LLM_BASE_URL", "https://proxy.example.test/v1"),
+              patch.object(settings, "FALLBACK_LLM_ALLOWED_HOSTS", "proxy.example.test")):
+            self.assertFalse(backup_configured())
+            with patch("provider.httpx.Client") as client, self.assertRaises(ProviderError):
+                BackupClient().call([{"role": "user", "content": "synthetic"}])
+                client.assert_not_called()
+
+    def test_invalid_reasoning_effort_is_refused_before_network(self):
+        for effort in ("none", "minimal", "extreme", ""):
+            with self.subTest(effort=effort), patch.object(settings, "FALLBACK_LLM_REASONING_EFFORT", effort):
+                self.assertFalse(backup_configured())
+                with patch("provider.httpx.Client") as client:
+                    with self.assertRaises(ProviderError):
+                        BackupClient().call([])
+                    client.assert_not_called()
+
+    def test_sol_truncated_due_to_reasoning_budget_is_not_certified(self):
+        with patch("provider.httpx.Client") as client:
+            post = client.return_value.__enter__.return_value.post
+            post.return_value = httpx.Response(200, json={
+                "choices": [{"finish_reason": "length",
+                             "message": {"content": ""}}],
+                "usage": {"prompt_tokens": 28, "completion_tokens": 8192}
+            })
+            with self.assertRaises(ProviderError) as raised:
+                BackupClient().call([{"role": "user", "content": "synthetic"}])
+            self.assertEqual(raised.exception.code, "truncated")
+            post.assert_called_once()

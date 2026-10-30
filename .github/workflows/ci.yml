@@ -2,15 +2,30 @@ name: Verify contract review workflow
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, release/brlaw-security-staging-20261029]
 permissions:
   contents: read
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      # Disposable evidence-store test database (PR-02). Synthetic data only;
+      # the password is a CI fixture, not a secret.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-evidence-fixture
+          POSTGRES_DB: evidence_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
     env:
       OTEL_SDK_DISABLED: 'true'
       LITELLM_LOCAL_MODEL_COST_MAP: 'true'
+      EVIDENCE_TEST_DATABASE_URL: postgresql+psycopg://postgres:ci-evidence-fixture@127.0.0.1:5432/evidence_test
+      # Fail instead of skipping if PostgreSQL is unavailable in CI.
+      EVIDENCE_REQUIRE_POSTGRES_TESTS: 'true'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -22,6 +37,30 @@ jobs:
         working-directory: backend
       - run: python -m unittest discover -s tests -v
         working-directory: backend
+      - run: python -m benchmarks.validate
+        working-directory: backend
+  backup-gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+        working-directory: backup_gateway
+      - run: python -m unittest discover -s tests -v
+        working-directory: backup_gateway
+      - run: docker build -t gilberto-backup-gateway-smoke .
+        working-directory: backup_gateway
+  staging-smoke:
+    if: github.head_ref == 'security/phase2-staging-security-smoke-20261029' || github.base_ref == 'release/brlaw-security-staging-20261029' || github.ref == 'refs/heads/release/brlaw-security-staging-20261029'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: python scripts/staging_smoke.py
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -37,5 +76,37 @@ jobs:
         working-directory: frontend
       - run: npm test
         working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swarm-synthetic-screenshots
+          path: frontend/test-results/swarm-screenshots/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - run: npm run test:local
+        working-directory: frontend
+      - run: npm run test:br-legal-notice
+        working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      # Check the real Railway nginx container and templated same-origin API proxy.
+      - run: docker build --build-arg VITE_AUTH_MODE=local -f Dockerfile -t gilberto-nginx-proxy-check .
+        working-directory: frontend
+      - run: docker run --rm -e PORT=8080 -e GILBERTO_API_UPSTREAM=http://127.0.0.1:8000 -e GILBERTO_PROXY_SECRET=ci-fixture-long-not-a-production-secret gilberto-nginx-proxy-check nginx -t
+  staging-release-contract:
+    if: always() && (github.base_ref == 'release/brlaw-security-staging-20261029' || github.ref == 'refs/heads/release/brlaw-security-staging-20261029')
+    needs: [backend, frontend, backup-gateway, staging-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed on any missing or failed staging release prerequisite
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BACKUP_RESULT: ${{ needs.backup-gateway.result }}
+          SMOKE_RESULT: ${{ needs.staging-smoke.result }}
+        run: |
+          test "$BACKEND_RESULT" = success
+          test "$FRONTEND_RESULT" = success
+          test "$BACKUP_RESULT" = success
+          test "$SMOKE_RESULT" = success
+          echo "Synthetic staging CI matrix passed; production release gates remain separate."

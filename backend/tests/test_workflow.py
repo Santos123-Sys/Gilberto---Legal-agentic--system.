@@ -7,6 +7,8 @@ from unittest.mock import patch
 import httpx
 import main
 from config import settings
+from security.oidc import Principal
+TEST_PRINCIPAL = Principal('https://identity.example/', 'lawyer-001')
 from engines.debate_engine_v3 import ReanalysisRequested, _safe_json
 from scoring import aggregate_clusters, weighted_median
 
@@ -49,6 +51,7 @@ class ScoringTests(unittest.TestCase):
 
 class WorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        main.app.dependency_overrides[main.current_principal] = lambda: TEST_PRINCIPAL
         main.sessions.clear()
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url='http://test')
         response = await self.client.post('/api/sessions', json={'num_rounds': 1})
@@ -64,6 +67,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
         await self.client.aclose()
+        main.app.dependency_overrides.pop(main.current_principal, None)
 
     def gate(self, cluster='foundation'):
         record = self.engine.gate_evaluator.record_trigger({'gate_number': 1, 'affected_cluster': cluster})
@@ -78,7 +82,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             'reasoning': 'Please recheck termination.', **extra})
 
     async def test_post_checkpoints_only_targeted_session(self):
-        unrelated = (await main.create_session(main.SessionCreateRequest(num_rounds=1))).session_id
+        unrelated = (await main.create_session(main.SessionCreateRequest(num_rounds=1), TEST_PRINCIPAL)).session_id
         self.engine.master_summaries = [{'parsed': {'final_score': 6, 'final_classification': 'Relevante'}}]
         self.session['status'] = 'awaiting_feedback'
         with patch.object(main.session_store, 'save') as save:
@@ -165,7 +169,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('/data/path', response.text)
 
     async def test_active_analysis_limit_fails_before_paid_dispatch(self):
-        second = (await main.create_session(main.SessionCreateRequest(num_rounds=1))).session_id
+        second = (await main.create_session(main.SessionCreateRequest(num_rounds=1), TEST_PRINCIPAL)).session_id
         self.session['status'] = 'awaiting_gate'
         with patch.object(settings, 'MAX_CONCURRENT_ANALYSES', 1):
             response = await self.client.post(
@@ -231,8 +235,8 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_budget_prevents_dispatch(self):
         self.engine.execution_metrics['model_calls'] = settings.MAX_MODEL_CALLS
         with patch('engines.debate_engine_v3._run_crew') as crew:
-            with self.assertRaisesRegex(RuntimeError, 'budget'):
-                await self.engine._run_agent({}, 'prompt')
+            with self.assertRaisesRegex(RuntimeError, 'Limite de chamadas ao modelo'):
+                await self.engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'prompt', cluster_id='foundation')
             crew.assert_not_called()
 
     async def test_reanalysis_runner_really_executes_revision(self):
@@ -249,9 +253,15 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.session['status'], 'awaiting_feedback')
 
 class RunBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        main.app.dependency_overrides[main.current_principal] = lambda: TEST_PRINCIPAL
+
+    async def asyncTearDown(self):
+        main.app.dependency_overrides.pop(main.current_principal, None)
+
     async def test_full_run_waits_for_every_review_and_uses_new_ids_each_round(self):
         main.sessions.clear()
-        created = await main.create_session(main.SessionCreateRequest(num_rounds=2))
+        created = await main.create_session(main.SessionCreateRequest(num_rounds=2), TEST_PRINCIPAL)
         sid = created.session_id
         session = main.sessions[sid]
         engine = session['engine']
@@ -277,12 +287,12 @@ class RunBoundaryTests(unittest.IsolatedAsyncioTestCase):
                     seen.add(gate['gate_id'])
                     await main.submit_gate_decision(sid, main.GateDecisionRequest(
                         session_id=sid, gate_number=gate['gate_number'], gate_id=gate['gate_id'],
-                        human_review_id='test', decision='approve', reasoning='Reviewed the source'))
+                        human_review_id='test', decision='approve', reasoning='Reviewed the source'), TEST_PRINCIPAL)
                 self.assertEqual(session['status'], 'running')
             await asyncio.wait_for(task, timeout=2)
         self.assertEqual(session['status'], 'awaiting_feedback')
         self.assertEqual(len(session['rounds']), 2)
-        self.assertEqual((await main.accept_result(sid))['status'], 'completed')
+        self.assertEqual((await main.accept_result(sid, TEST_PRINCIPAL))['status'], 'completed')
 
     async def test_timeout_aborts_queued_work_without_dispatch(self):
         engine = main.DebateEngineV3('timeout', 20, 1, 'general')
@@ -290,14 +300,35 @@ class RunBoundaryTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.05)
             return '{}'
         with patch.object(settings, 'LLM_REQUEST_TIMEOUT_SECONDS', 0.001), patch('engines.debate_engine_v3.asyncio.to_thread', side_effect=slow_provider):
-            with self.assertRaisesRegex(RuntimeError, 'timed out'):
-                await engine._run_agent({'role': 'test'}, 'small prompt')
+            with self.assertRaisesRegex(RuntimeError, 'tempo limite'):
+                await engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'small prompt', cluster_id='foundation')
         with patch('engines.debate_engine_v3._run_crew') as crew:
-            with self.assertRaisesRegex(RuntimeError, 'stopped'):
-                await engine._run_agent({'role': 'test'}, 'small prompt')
+            with self.assertRaisesRegex(RuntimeError, 'interrompida'):
+                await engine._run_agent(main.CLUSTERS['foundation']['agents'][0], 'small prompt', cluster_id='foundation')
             crew.assert_not_called()
         self.assertEqual(engine.execution_metrics['model_tasks'][0]['status'], 'timed_out')
 
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BrazilianJurisdictionScopeTests(unittest.TestCase):
+    def test_only_br_is_accepted_by_api_schema(self):
+        from pydantic import ValidationError
+        from models.schemas import SessionCreateRequest
+        for foreign in ("CH", "PT", "US", "EU", "Brazil", "", "br"):
+            with self.subTest(foreign=foreign):
+                with self.assertRaises(ValidationError):
+                    SessionCreateRequest(jurisdiction=foreign)
+        self.assertEqual(SessionCreateRequest(jurisdiction="BR").jurisdiction, "BR")
+
+    def test_agent_instructions_cannot_silently_expand_foreign_scope(self):
+        from agents.cluster_definitions import get_cluster_analysis_prompt, CLUSTERS
+        role = CLUSTERS["foundation"]["agents"][0]
+        prompt = get_cluster_analysis_prompt(
+            document_text="Fictional contract invoking foreign legal regime.",
+            agent_cfg=role, round_num=1,
+            prior_cluster_summaries={}, previous_analyses=None)
+        self.assertIn("strictly Brazilian law", prompt)
+        self.assertIn("OUT_OF_SCOPE", prompt)

@@ -30,15 +30,35 @@ from collections import deque
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from provider import MaritacaClient, ProviderError
+from provider import MaritacaClient, BackupClient, ProviderError
 
 from config import settings
 from scoring import aggregate_clusters, weighted_median
+from legal.claims import assess_agent_claims
+from legal.assurance import synthesis_assurance
+from security.capability_policy import authorize_agent_action
 from models.schemas import AgentAnalysis, ClusterSummary, DevilAdvocateOutput, MasterSynthesis
 
 
 class WorkflowError(RuntimeError):
-    """A safe, user-actionable orchestration error without provider payloads."""
+    """A safe, user-actionable orchestration error without provider payloads.
+
+    ``code`` is a fixed, language-independent identifier used for diagnostics.
+    The message is user-facing Portuguese text and may be reworded freely;
+    never classify an error by its message.
+    """
+
+    def __init__(self, message: str, code: str = "workflow_interrupted"):
+        super().__init__(message)
+        self.code = code
+
+
+# Fixed diagnostic codes, grouped by category, for WorkflowError.code.
+_POLICY_CODES = frozenset({"policy_denied", "cost_ceiling", "cost_configuration"})
+_EXECUTION_CODES = frozenset({
+    "provider_timeout", "model_call_budget", "context_budget",
+    "prior_provider_timeout", "workflow_interrupted",
+})
 
 
 class ReanalysisRequested(Exception):
@@ -70,16 +90,14 @@ def safe_workstream_failure(exc):
     if isinstance(exc, asyncio.CancelledError):
         return {"category": "execution", "code": "cancelled"}
     if isinstance(exc, WorkflowError):
-        message = str(exc)
-        if message.startswith("AI provider timed out"):
-            code = "provider_timeout"
-        elif message.startswith("Model-call budget reached"):
-            code = "model_call_budget"
-        elif message.startswith("Document context exceeds"):
-            code = "context_budget"
-        elif message.startswith("Provider execution stopped after a timeout"):
-            code = "prior_provider_timeout"
-        else:
+        # Security and cost controls are classified separately so a reviewer
+        # can distinguish a deliberate fail-closed denial from an ordinary
+        # interruption. Only allowlisted fixed codes are returned, never the
+        # message, and never derived from the message's wording.
+        code = getattr(exc, "code", None)
+        if code in _POLICY_CODES:
+            return {"category": "policy", "code": code}
+        if code not in _EXECUTION_CODES:
             code = "workflow_interrupted"
         return {"category": "execution", "code": code}
     if isinstance(exc, (ValueError, TypeError)):
@@ -316,10 +334,16 @@ class DebateEngineV3:
         num_agents: int,
         num_rounds: int,
         workflow_type: str,
+        provider_mode: str = "primary",
+        backup_consent: bool = False,
     ):
         self.session_id = session_id
         self.num_rounds = num_rounds
         self.workflow_type = workflow_type
+        if provider_mode not in ("primary", "backup"):
+            raise ValueError("Unsupported provider mode")
+        self.provider_mode = provider_mode
+        self.backup_consent = backup_consent is True
         self.current_round = 0
 
         # State
@@ -327,6 +351,7 @@ class DebateEngineV3:
         self.devil_advocate_output: Optional[Dict] = None
         self.master_summaries: List[Dict] = []
         self.feedback_agents: Dict[str, List[Dict]] = {k: [] for k in CLUSTERS}
+        self._legal_evidence_audits = []
         self.gate_evaluator = GateEvaluator()
         self.execution_metrics: Dict[str, Any] = {
             "total_latency_ms": 0,
@@ -336,10 +361,12 @@ class DebateEngineV3:
             "model_calls": 0,
             "model_tasks": [],
             "estimated_input_tokens": 0,
+            "reserved_upper_bound_usd": 0.0,
+            "cost_measurement": "estimated worst-case reservation, not billed costs",
         }
 
         # LLM
-        self.llm = MaritacaClient()
+        self.llm = BackupClient() if provider_mode == "backup" else MaritacaClient()
         self.review_depth = "full"
 
         # Event queue for SSE
@@ -355,6 +382,12 @@ class DebateEngineV3:
         self._llm_input_reservations = deque()
         self._provider_aborted = False
         self._provider_failure = None
+        # Pause is a dispatch barrier, not a cancellation of an already billed request.
+        self._dispatch_allowed = asyncio.Event()
+        self._dispatch_allowed.set()
+        self._active_provider_calls = 0
+        self._on_dispatch_idle = None
+
 
     # ── Event helpers ────────────────────────
 
@@ -368,16 +401,17 @@ class DebateEngineV3:
 
     # ── Single agent execution ───────────────
 
-    async def _run_agent(self, agent_cfg: Dict, prompt: str) -> str:
+    async def _run_agent(self, agent_cfg: Dict, prompt: str, *, cluster_id: str) -> str:
         """Run one agent through a bounded, paced provider-call queue."""
         queued_at = time.monotonic()
         async with self._llm_call_semaphore:
+            await self._dispatch_allowed.wait()
             if self._provider_failure:
                 raise self._provider_failure
             if self._provider_aborted:
-                raise WorkflowError("Provider execution stopped after a timeout; start a new review after checking the provider")
+                raise WorkflowError("A execução no provedor foi interrompida após um tempo esgotado; verifique o provedor antes de iniciar uma nova revisão", code="prior_provider_timeout")
             if self.execution_metrics["model_calls"] >= settings.MAX_MODEL_CALLS:
-                raise WorkflowError("Model-call budget reached; partial findings remain available")
+                raise WorkflowError("Limite de chamadas ao modelo atingido; as conclusões parciais continuam disponíveis", code="model_call_budget")
             # Approximate input tokens conservatively from prompt size.
             estimated_input_tokens = max(1, (len(prompt) + 2) // 3)
             async with self._llm_start_lock:
@@ -394,7 +428,7 @@ class DebateEngineV3:
                     )
                     budget = max(1, settings.LLM_INPUT_TOKENS_PER_MINUTE)
                     if estimated_input_tokens > budget:
-                        raise WorkflowError("Document context exceeds the configured per-minute input budget. Use a shorter document or increase the provider-entitled budget")
+                        raise WorkflowError("O documento excede o orçamento de entrada por minuto configurado. Use um documento mais curto ou aumente o orçamento contratado com o provedor", code="context_budget")
                     pacing_wait = max(0.0, self._llm_next_start_at - now)
                     token_wait = 0.0
                     if (
@@ -413,12 +447,48 @@ class DebateEngineV3:
                                                reason="provider_pacing", agent=agent_cfg.get("role")))
                     await asyncio.sleep(wait_seconds)
 
+                await self._dispatch_allowed.wait()
                 if self._provider_failure:
                     raise self._provider_failure
                 if self._provider_aborted:
-                    raise WorkflowError("Provider execution stopped after a timeout")
+                    raise WorkflowError("A execução no provedor foi interrompida após um tempo esgotado", code="prior_provider_timeout")
                 if self.execution_metrics["model_calls"] >= settings.MAX_MODEL_CALLS:
-                    raise WorkflowError("Model-call budget reached; partial findings remain available")
+                    raise WorkflowError("Limite de chamadas ao modelo atingido; as conclusões parciais continuam disponíveis", code="model_call_budget")
+                # Authorize at the actual model-dispatch boundary, independent of
+                # frontend controls, agent prompts and agent-supplied tool lists.
+                decision = authorize_agent_action(
+                    agent_cfg, "model_completion", cluster_id=cluster_id,
+                    round_num=self.current_round, jurisdiction="BR",
+                    provider_mode=self.provider_mode, backup_consent=self.backup_consent,
+                )
+                if decision["outcome"] not in ("ALLOW", "ALLOW_WITH_CONDITIONS"):
+                    await self._emit(self._evt(
+                        "AGENT_POLICY_DENIED", agent=(agent_cfg.get("role") if isinstance(agent_cfg, dict) else None),
+                        cluster=cluster_id, decision=decision["outcome"],
+                        reason_code=decision["reason_code"],
+                        policy_version=decision["policy_version"],
+                    ))
+                    raise WorkflowError("A política de capacidades do agente bloqueou o envio: "
+                                        + decision["reason_code"], code="policy_denied")
+                # Reserve conservative upper-bound output BEFORE paid dispatch.
+                # Does not claim actual provider billing or exact tokenizer size.
+                hard_cap = settings.MAX_REVIEW_ESTIMATED_USD
+                input_price = (settings.FALLBACK_LLM_INPUT_PRICE_USD_PER_1M
+                               if self.provider_mode == "backup" else settings.LLM_INPUT_PRICE_USD_PER_1M)
+                output_price = (settings.FALLBACK_LLM_OUTPUT_PRICE_USD_PER_1M
+                                if self.provider_mode == "backup" else settings.LLM_OUTPUT_PRICE_USD_PER_1M)
+                if hard_cap > 0:
+                    if input_price <= 0 or output_price <= 0:
+                        raise WorkflowError("Teto de custo configurado sem os dois preços do modelo; envio pago recusado", code="cost_configuration")
+                    reservation = (
+                        estimated_input_tokens * input_price
+                        + (settings.FALLBACK_LLM_MAX_COMPLETION_TOKENS
+                           if self.provider_mode == "backup" and settings.FALLBACK_LLM_MODEL == "gpt-6.1-sol"
+                           else settings.MAX_TOKENS) * output_price
+                    ) / 1_000_000
+                    if self.execution_metrics["reserved_upper_bound_usd"] + reservation > hard_cap:
+                        raise WorkflowError("Teto de custo estimado por revisão atingido; nenhuma nova requisição ao modelo foi enviada", code="cost_ceiling")
+                    self.execution_metrics["reserved_upper_bound_usd"] += reservation
                 self.execution_metrics["model_calls"] += 1
                 started_at = time.monotonic()
                 self._llm_input_reservations.append(
@@ -431,30 +501,46 @@ class DebateEngineV3:
             task_trace = {"task_id": self.execution_metrics["model_calls"],
                           "agent": agent_cfg.get("role"), "round": self.current_round,
                           "estimated_input_tokens": estimated_input_tokens,
+                          "provider_mode": self.provider_mode,
                           "queue_wait_ms": round((time.monotonic() - queued_at) * 1000, 1),
                           "status": "running"}
             self.execution_metrics["model_tasks"].append(task_trace)
             execution_started = time.monotonic()
+            self._active_provider_calls += 1
             # A timed-out thread cannot be killed safely; never retry it automatically.
             try:
                 result = await asyncio.wait_for(
                     asyncio.to_thread(_run_crew, agent_cfg, prompt, self.llm),
                     timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
                 )
+                if self._provider_aborted:
+                    raise WorkflowError("Resultado do provedor descartado após a interrupção da execução")
                 task_trace["status"] = "completed"
                 return result
+            except asyncio.CancelledError:
+                # Cancellation of an asyncio.to_thread future does not kill the
+                # already running provider thread; report uncertainty accurately.
+                task_trace["status"] = "cancelled_in_flight_unknown"
+                self._provider_aborted = True
+                raise
             except asyncio.TimeoutError:
                 task_trace["status"] = "timed_out"
                 self._provider_aborted = True
-                raise WorkflowError("AI provider timed out. Completed findings are retained; no automatic retry was sent") from None
+                raise WorkflowError("O provedor de IA excedeu o tempo limite. As conclusões já concluídas foram mantidas; nenhuma nova tentativa automática foi enviada", code="provider_timeout") from None
             except Exception as exc:
                 if isinstance(exc, ProviderError):
                     self._provider_failure = exc
                 task_trace["error_code"] = exc.code if isinstance(exc, ProviderError) else "execution_error"
+                if isinstance(exc, ProviderError) and exc.http_status is not None:
+                    task_trace["provider_http_status"] = exc.http_status
                 task_trace["status"] = "failed"
                 raise
             finally:
                 task_trace["execution_ms"] = round((time.monotonic() - execution_started) * 1000, 1)
+                self.execution_metrics["provider_usage"] = self.llm.usage_snapshot()
+                self._active_provider_calls -= 1
+                if self._active_provider_calls == 0 and self._on_dispatch_idle is not None:
+                    self._on_dispatch_idle()
 
     # ── Cluster execution (single cluster) ───
 
@@ -510,8 +596,10 @@ class DebateEngineV3:
             )
 
             prompt = f"Selected workflow: {self.workflow_type}.\n" + prompt
-            raw = await self._run_agent(agent_cfg, prompt)
+            raw = await self._run_agent(agent_cfg, prompt, cluster_id=cluster_id)
             parsed = AgentAnalysis.model_validate(_safe_json(raw)).model_dump(mode="json")
+            parsed["evidence_audit"] = assess_agent_claims(parsed, document_text)
+            self._legal_evidence_audits.append(parsed["evidence_audit"])
 
             analysis = {
                 "agent": agent_cfg["role"],
@@ -557,7 +645,7 @@ class DebateEngineV3:
                 cluster_name=cluster["name"],
             )
 
-            raw = await self._run_agent(agent_cfg, prompt)
+            raw = await self._run_agent(agent_cfg, prompt, cluster_id=cluster_id)
             parsed = _safe_json(raw)
             all_scores[agent_cfg["role"]] = {"raw": raw, "parsed": parsed}
 
@@ -583,7 +671,7 @@ class DebateEngineV3:
             prior_cluster_summaries=self.cluster_summaries,
         )
 
-        raw = await self._run_agent(cluster["manager"], prompt)
+        raw = await self._run_agent(cluster["manager"], prompt, cluster_id=cluster_id)
         parsed = ClusterSummary.model_validate(_safe_json(raw)).model_dump(mode="json")
         if parsed["cluster"] != cluster_id:
             raise ValueError("Cluster manager returned a different workstream")
@@ -625,7 +713,7 @@ class DebateEngineV3:
             round_num=round_num,
         )
 
-        raw = await self._run_agent(DEVILS_ADVOCATE, prompt)
+        raw = await self._run_agent(DEVILS_ADVOCATE, prompt, cluster_id="coordination")
         parsed = DevilAdvocateOutput.model_validate(_safe_json(raw)).model_dump(mode="json")
 
         self.devil_advocate_output = {"raw": raw, "parsed": parsed}
@@ -658,9 +746,10 @@ class DebateEngineV3:
             round_num=round_num,
         )
 
-        raw = await self._run_agent(MASTER_MANAGER, prompt)
+        raw = await self._run_agent(MASTER_MANAGER, prompt, cluster_id="coordination")
         parsed = MasterSynthesis.model_validate(_safe_json(raw)).model_dump(mode="json")
         parsed.update(aggregate_clusters(self.cluster_summaries))
+        parsed["legal_assurance"] = synthesis_assurance(self._legal_evidence_audits)
         parsed["devil_advocate"] = self.devil_advocate_output["parsed"] if self.devil_advocate_output else None
 
         master_summary = {"raw": raw, "parsed": parsed}
@@ -721,6 +810,9 @@ class DebateEngineV3:
         except BaseException:
             if not execution.done():
                 execution.cancel()
+            # Drain coroutine cleanup before the API saves a terminal checkpoint.
+            # Remote calls in threads may still complete; their results are ignored.
+            await asyncio.gather(execution, return_exceptions=True)
             raise
 
     async def _execute_debate(self, document_text: str) -> None:
@@ -773,7 +865,7 @@ class DebateEngineV3:
             if failures and all(isinstance(exc, ProviderError) for exc in failures):
                 raise failures[0]
             if failed or not self.cluster_summaries:
-                raise WorkflowError("Specialist review incomplete: " + ", ".join(failed or ["no active clusters"]))
+                raise WorkflowError("Revisão especializada incompleta: " + ", ".join(failed or ["nenhum grupo ativo"]))
 
             # Devil's Advocate
             await self._run_devils_advocate(document_text, round_num)
@@ -825,7 +917,7 @@ class DebateEngineV3:
             total_agents_run=sum(1 if self.review_depth == "focused" else len(CLUSTERS[cid]["agents"]) for cid in self.cluster_summaries) * self.num_rounds,
             execution_metrics=self.execution_metrics,
             gate_records=self.gate_evaluator.gate_records,
-            message="Analysis complete. Awaiting user feedback.",
+            message="Análise concluída. Aguardando comentários do usuário.",
         ))
 
         self._running = False
@@ -852,6 +944,7 @@ class DebateEngineV3:
         except BaseException:
             if not execution.done():
                 execution.cancel()
+            await asyncio.gather(execution, return_exceptions=True)
             raise
 
     async def _execute_process_feedback(self, feedback: str, document_text: str) -> None:
@@ -873,7 +966,7 @@ class DebateEngineV3:
             feedback=feedback,
             cluster_summaries=self.cluster_summaries,
         )
-        routing_raw = await self._run_agent(MASTER_MANAGER, routing_prompt)
+        routing_raw = await self._run_agent(MASTER_MANAGER, routing_prompt, cluster_id="coordination")
         routing = _safe_json(routing_raw)
         target_cluster_id = routing.get("target_cluster")
         if target_cluster_id not in self.cluster_summaries:
@@ -945,9 +1038,9 @@ class DebateEngineV3:
                 item["cluster"] + " (" + item["code"] + ")" for item in failed
             )
             raise WorkflowError(
-                "Re-analysis incomplete: " + codes +
-                ". Earlier findings are retained but are not a verified final analysis. "
-                "Check the provider or model-output diagnostic before a new review."
+                "Reanálise incompleta: " + codes +
+                ". As conclusões anteriores foram mantidas, mas não constituem uma análise final verificada. "
+                "Verifique o diagnóstico do provedor ou da saída do modelo antes de uma nova revisão."
             )
         self.cluster_summaries.update(pending_summaries)
 
@@ -977,7 +1070,7 @@ class DebateEngineV3:
             "DEBATE_COMPLETE",
             total_rounds=new_round,
             gate_records=self.gate_evaluator.gate_records,
-            message="Feedback incorporated. Analysis updated.",
+            message="Comentários incorporados. Análise atualizada.",
         ))
 
 

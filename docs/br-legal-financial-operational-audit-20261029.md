@@ -1,0 +1,26 @@
+# Baseline audit / gap register — Gilberto (BR legal system only)
+
+**Date:** 2026-10-29. Source snapshot: security/recovery staging candidate `b43ba5685970f81d2440489713f1dbc9db9984db`; baseline **91 Python tests, 23 browser tests, 3 gateway tests plus live staging smoke** from prior CI, not substantive legal benchmark accuracy. **No verified Brazilian lawyer-scored answers yet**; legal accuracy/error/cost per validated review = **not measured**.
+
+## Findings and prioritized remediation
+
+| ID | Severity | Difficulty | Category | Evidence / root cause | Proposed fix | Acceptance |
+|---|---|---|---|---|---|---|
+| BR-01 | P0 | Easy | Legal scope | SessionCreateRequest formerly accepts arbitrary jurisdiction strings; prompts mention Brazilian context but do not reject foreign law. | Enforce BR-only schema and agent instructions. | Foreign jurisdiction requests 422; BR accepted; adversarial foreign-law prompt flagged. |
+| BR-02 | P0 | Hard | Contract evidence | AgentFinding.evidence is free text with no contract-span match or source hash. | Deterministic document-quote ledger and source hash. | Synthetic exact quotes match; false quotes flagged. |
+| BR-03 | P0 | Hard | Legal authority | legal_basis free text; no verified jurisprudence/legislation acquisition or current-law status. | Authority provenance and allowlisted official-domain registry; never certify existence without retrieval. | Spoofed URL rejected; no false verified label. |
+| BR-04 | P0 | Medium | Legal quality | AgentAnalysis parses without independent claim support assessment. | Auditable evidence-quality findings and explicit unverified categorization. | Unsupported quote/basis flagged; verified contract quotes distinguished from legal norms. |
+| BR-05 | P0 | Medium | Expert review | Synthesized result merges model output without independently checked authority status; agent agreement can disguise shared errors. | Final legal-assurance and mandatory human escalation on unverified material propositions. | Release status must not claim expert-verified legal conclusions. |
+| BR-06 | P1 | Medium | Financial | Provider returns content only; token_usage dictionary initially empty. | Provider-reported usage counters and labels distinguishing estimates. | Synthetic provider reports counted exactly once. |
+| BR-07 | P1 | Medium | Financial | MAX_MODEL_CALLS caps calls, but no price-bounded dollar cap. | Per-run worst-case pricing reservation and hard ceiling. | Budget exhaustion occurs BEFORE extra call. |
+| BR-08 | P1 | Easy | Financial | 20-agent default may incur unnecessary calls, no transparent cost preview. | Request-level cost-plan estimate based on explicit rates and execution plan. | Estimate never represented as invoice. |
+| BR-09 | P1 | Medium | Operations | Failure traces exist, but no bounded privacy-safe runtime reliability report. | Deterministic operational event/status classification, fault injection tests. | No raw legal documents or passwords in metrics. |
+| BR-10 | P1 | Medium | Governance | No reproducible Brazil-only held-out legal corpus or independent expert review. | Versioned synthetic adversarial corpus and release checklist + human rubric. | Automated tests report control coverage only; expert accuracy remains unknown. |
+
+**Jurisdiction:** Brazil only (federal laws, state/municipal rules when applicable, STF/STJ/TST/TRFs/TJs, CADE, CVM, ANPD, relevant Brazilian regulators). Cross-border contract facts may be noted, but foreign substantive law is out of scope. **Do not use Portuguese-law benchmark as Brazilian-law ground truth.**
+
+**Verified public source entrypoints:** [Federal legislation](https://www.planalto.gov.br/ccivil_03/leis/2002/l10406compilada.htm); [STF case law](https://portal.stf.jus.br/); [STJ official jurisprudence](https://scon.stj.jus.br/SCON/); [CVM legislation and decisions](https://www.gov.br/cvm/pt-br/acesso-a-informacao-cvm/perguntas-frequentes-da-cvm/onde-consultar-a-legislacao-do); [CADE jurisprudence](https://www.gov.br/cade/pt-br/assuntos/servicos-digitais/busca-de-jurisprudencia); [CNJ DataJud public API](https://www.cnj.jus.br/sistemas/datajud/api-publica/). DataJud supplies **case metadata, not certified case holdings or authority validity**. Check its licence and redistribution restrictions before integration.
+
+**Competitor design references (not comparable performance tests):** [Harvey jurisdictional knowledge sources](https://help.harvey.ai/topics/knowledge-sources); [CoCounsel source-linked research](https://legal.thomsonreuters.com/en/legal/research-corp); LexisNexis Protégé, Vincent AI. Capabilities are vendor-marketed absent standardized BR comparative runs. [LegalBench](https://papers.neurips.cc/paper_files/paper/2023/hash/89e44582fd28ddfea1ea4dcb0ebbf4b0-Abstract-Datasets_and_Benchmarks.html) provides evaluation methodology, but is not a Brazilian-law truth corpus.
+
+**Baseline before new PRs:** all ten legal/financial/operations control acceptance functions are specified here. Existing tested controls remain unchanged. New pass ratios must use the same selected acceptance cases, with baseline run/commit recorded; no cherry-picked denominator. Production main remains unchanged until accumulated security draft chain and BR legal quality gates are reviewed.
