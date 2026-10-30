@@ -36,6 +36,7 @@ function eventCopy(event) {
     ROUND_COMPLETE: [`Round ${event.round || ''} complete`.trim(), 'The round summary is ready and the debate can move to its next step.'],
     DEBATE_COMPLETE: ['Analysis run complete', 'The result is being prepared for review.'],
     PROVIDER_WAIT: ['Waiting for provider capacity', 'The request is queued to respect the configured provider limits.'],
+    CLUSTER_FAILED: [`${cluster} review failed`, `Reason code: ${event.code || 'unexpected_failure'}. The incomplete workstream cannot be used for a final legal analysis.`],
     ERROR: ['The analysis stopped', event.message || 'The service returned an error.'],
   }
   return messages[event.type] || [event.type?.replaceAll('_', ' ').toLowerCase() || 'Analysis update', 'The analysis workflow recorded a new update.']
@@ -58,7 +59,7 @@ function deriveStage(events) {
 function currentRoundEvents(events) {
   let latestStart = -1
   for (let index = 0; index < events.length; index += 1) {
-    if (events[index].type === 'ROUND_START') latestStart = index
+    if (events[index].type === 'ROUND_START' || events[index].type === 'FEEDBACK_RECEIVED') latestStart = index
   }
   return latestStart >= 0 ? events.slice(latestStart) : events
 }
@@ -73,7 +74,9 @@ export function AgenticProgress({ events = [], rounds = [], totalRounds = 1, con
   const latest = events.slice(-7).reverse()
   const configured = events.find(event => event.type === 'DEBATE_START')?.active_clusters
   const visibleClusters = configured ? CLUSTERS.filter(([id]) => configured.includes(id)) : []
-  const connection = {
+  const connection = stopped && connectionState === 'closed'
+    ? { label: 'Updates closed after failure', className: 'text-red-300', icon: <ShieldAlert size={13} /> }
+    : {
     connecting: { label: 'Connecting to live updates', className: 'text-amber-300', icon: <Loader size={13} className="animate-spin" /> },
     connected: { label: 'Live updates connected', className: 'text-emerald-300', icon: <Radio size={13} /> },
     reconnecting: { label: 'Reconnecting to live updates', className: 'text-amber-300', icon: <Loader size={13} className="animate-spin" /> },
