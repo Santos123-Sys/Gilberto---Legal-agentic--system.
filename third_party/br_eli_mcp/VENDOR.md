@@ -41,3 +41,12 @@ Esta versão está consolidada em um único commit. Uma versão anterior, que co
 ## Como atualizar
 
 Qualquer nova versão do upstream deve ser comparada com o upstream em `1ac3f63`, reaplicando os controles de `test_hardening.py` e a pseudonimização dos fixtures, e depois passar pela auditoria estática e pelos testes offline.
+
+## Serviço HTTP (implantação separada)
+
+`service/app.py` expõe o mesmo servidor MCP por streamable-http, em modo sem estado, atrás de
+`Authorization: Bearer` (`BR_ELI_SERVICE_TOKEN`, mínimo de 32 caracteres; sem token o processo não inicia).
+`/health` é a única rota sem autenticação. `service/Dockerfile` instala as dependências com
+`--require-hashes` a partir de `lock/requirements.txt`. O backend usa `backend/legal_sources/br_eli_client.py`,
+que só chama as ferramentas da lista de permissões, todas somente leitura.
+Cache e auditoria ficam em `/tmp` no contêiner, portanto não persistem entre implantações.
