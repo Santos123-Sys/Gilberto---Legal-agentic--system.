@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     OIDC_AUDIENCE: str = ""
     OIDC_JWKS_URL: str = ""
 
+    # ── Fontes jurídicas (serviço br-eli-mcp, somente leitura) ──
+    BR_ELI_SERVICE_URL: str = ""
+    BR_ELI_SERVICE_TOKEN: str = ""
+
     # ── Server ───────────────────────────────
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
