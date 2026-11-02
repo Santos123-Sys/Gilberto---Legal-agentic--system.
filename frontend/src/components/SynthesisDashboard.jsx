@@ -1,11 +1,12 @@
 import React from 'react'
 import { Award, AlertTriangle, CheckSquare, Download, Share2, Shield } from 'lucide-react'
 import { ConfidenceSignal } from './ConfidenceSignal'
+import { LegalAssuranceNotice } from './LegalAssuranceNotice'
 
 function displayValue(value) {
   if (typeof value === 'string' || typeof value === 'number') return String(value)
   if (value == null) return ''
-  try { return JSON.stringify(value) } catch { return 'Details unavailable' }
+  try { return JSON.stringify(value) } catch { return 'Detalhes indisponíveis' }
 }
 
 export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport }) {
@@ -20,17 +21,18 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-300">AI-generated draft. Check cited clauses and legal authorities before relying on the conclusions. Model agreement does not verify legal correctness.</p>
+      <LegalAssuranceNotice synthesis={synthesis} />
+      <p className="text-sm text-slate-300">Minuta gerada por IA. Confira as cláusulas e os fundamentos jurídicos citados antes de confiar nas conclusões. A concordância entre modelos não comprova a correção jurídica.</p>
       <details className="card p-4 text-sm">
-        <summary className="cursor-pointer text-amber-300 font-medium">Evidence verification checklist (manual)</summary>
+        <summary className="cursor-pointer text-amber-300 font-medium">Lista de verificação das provas (manual)</summary>
         <ol className="list-decimal ml-5 mt-3 space-y-2 text-slate-300">
-          <li>Locate each quoted contract clause in the original uploaded document and compare wording and surrounding context.</li>
-          <li>Independently check cited laws, court decisions and effective dates against authoritative sources.</li>
-          <li>Flag material conclusions without source support for expert review before relying on the draft.</li>
+          <li>Localize cada cláusula contratual citada no documento original enviado e compare a redação e o contexto.</li>
+          <li>Confira de forma independente as leis, decisões judiciais e datas de vigência citadas nas fontes oficiais.</li>
+          <li>Sinalize para revisão especializada as conclusões relevantes sem respaldo em fontes antes de confiar na minuta.</li>
         </ol>
-        <p className="mt-3 text-xs text-slate-400">These checks are not performed or certified by Gilberto automatically.</p>
+        <p className="mt-3 text-xs text-slate-400">Estas verificações não são realizadas nem certificadas automaticamente pelo Gilberto.</p>
       </details>
-      {synthesis.human_override && <p role="status" className="text-sm text-yellow-300">Risk score adjusted by a human reviewer: {synthesis.human_override.reasoning}. Model score: {synthesis.model_assessment?.final_score}.</p>}
+      {synthesis.human_override && <p role="status" className="text-sm text-yellow-300">Pontuação de risco ajustada por revisor humano: {synthesis.human_override.reasoning}. Pontuação do modelo: {synthesis.model_assessment?.final_score}.</p>}
       {/* Executive Summary */}
       <div className="card p-6 border-gold-500/30">
         <div className="flex items-center gap-3 mb-4">
@@ -38,7 +40,7 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
             <Award size={20} className="text-gold-400" />
           </div>
           <div className="flex-1">
-            <h2 className="font-display text-xl text-slate-100">Executive Summary</h2>
+            <h2 className="font-display text-xl text-slate-100">Resumo executivo</h2>
           </div>
           <ConfidenceSignal
             score={Number.isFinite(score) ? score : 0}
@@ -91,7 +93,7 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
 
           {followUps.length > 0 && (
             <div>
-              <h4 className="text-xs font-medium text-slate-400 mb-2">FOLLOW-UP ACTIONS</h4>
+              <h4 className="text-xs font-medium text-slate-400 mb-2">PROVIDÊNCIAS DE ACOMPANHAMENTO</h4>
               <div className="space-y-2">
                 {followUps.filter(Boolean).map((action, i) => (
                   <div key={i} className="flex items-start gap-2 p-2 rounded bg-slate-800/30">
@@ -117,7 +119,7 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
       {/* Cluster Breakdown */}
       {clusterResults && Object.keys(clusterResults).length > 0 && (
         <div>
-          <h3 className="font-display text-lg text-slate-100 mb-4">Cluster Analysis Breakdown</h3>
+          <h3 className="font-display text-lg text-slate-100 mb-4">Detalhamento da análise por grupo</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {Object.entries(clusterResults).map(([id, result]) => (
               <ClusterResultCard key={id} id={id} result={result} />
@@ -131,7 +133,7 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
         <div className="card p-6 border-red-500/20">
           <h3 className="font-display text-lg text-slate-100 mb-4 flex items-center gap-2">
             <AlertTriangle size={18} className="text-red-400" />
-            Critical Actions Required
+            Providências críticas necessárias
           </h3>
           <ol className="space-y-3">
             {criticalActions.map((action, i) => (
@@ -151,7 +153,7 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
         <div className="card p-6 border-green-500/20">
           <h3 className="font-display text-lg text-slate-100 mb-4 flex items-center gap-2">
             <CheckSquare size={18} className="text-green-400" />
-            Approval Checklist
+            Lista de verificação para aprovação
           </h3>
           <div className="space-y-2">
             {checklist.map((item, i) => (
@@ -169,7 +171,7 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
         <div className="card p-6 border-yellow-500/20">
           <h3 className="font-display text-lg text-slate-100 mb-4 flex items-center gap-2">
             <Shield size={18} className="text-yellow-400" />
-            Human Review Gates
+            Etapas de revisão humana
           </h3>
           <div className="space-y-3">
             {gates.filter(Boolean).map((gate, i) => (
@@ -186,7 +188,7 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
                     Gate {gate.gate_number}: {gate.trigger?.trigger_type || gate.trigger_type}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {gate.status} — {gate.human_decision?.human_review_id || 'System'}
+                    {gate.status} — {gate.human_decision?.human_review_id || 'Sistema'}
                   </p>
                 </div>
               </div>
@@ -198,10 +200,10 @@ export function SynthesisDashboard({ synthesis, clusterResults, gates, onExport 
       {/* Export */}
       <div className="flex gap-3">
         <button onClick={onExport} className="btn-primary flex items-center gap-2">
-          <Download size={16} /> Export Full Report
+          <Download size={16} /> Exportar relatório completo
         </button>
         <button className="btn-secondary flex items-center gap-2">
-          <Share2 size={16} /> Share Results
+          <Share2 size={16} /> Compartilhar resultados
         </button>
       </div>
     </div>
@@ -222,11 +224,11 @@ function ClusterResultCard({ id, result }) {
   }
 
   const names = {
-    foundation: 'Foundation',
-    financial_risk: 'Financial Risk',
-    mitigation_exit: 'Mitigation & Exit',
-    compliance: 'Compliance',
-    strategy: 'Strategy',
+    foundation: 'Fundamentos',
+    financial_risk: 'Risco financeiro',
+    mitigation_exit: 'Mitigação e saída',
+    compliance: 'Conformidade',
+    strategy: 'Estratégia',
   }
 
   const color = colors[id] || '#64748b'

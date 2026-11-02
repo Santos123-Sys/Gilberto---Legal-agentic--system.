@@ -1,0 +1,11 @@
+# Runtime of the Claude plugin: pins br-eli-mcp and every transitive dependency
+# (with hashes) in uv.lock, so the plugin runs exactly what was reviewed.
+# Started by plugin.json as: uvx br-eli-mcp==0.8.3 (Claude Code's locked launch reads this uv.lock)
+[project]
+name = "br-eli-mcp-plugin-runtime"
+version = "0.8.3"
+requires-python = ">=3.11,<3.14"
+dependencies = ["br-eli-mcp==0.8.3"]
+
+[tool.uv]
+package = false

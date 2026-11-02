@@ -1,6 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { authorizedFetch } from '../auth/client'
+import { AuthenticatedEventStream } from '../auth/stream'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_AUTH_MODE === 'local'
+  ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
 const ACTIVE_SESSION_KEY = 'gilberto.activeSession.v1'
 
 function readSavedSession() {
@@ -38,7 +41,7 @@ function apiErrorMessage(detail, fallback) {
 
 function statusFromServer(status) {
   if (status === 'created') return 'preview'
-  if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(status)) return status
+  if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error', 'cancelled', 'cancellation_requested'].includes(status)) return status
   return 'error'
 }
 
@@ -60,6 +63,10 @@ export function useAgenticSession() {
   const [showIntentPreview, setShowIntentPreview] = useState(false)
   const [connectionState, setConnectionState] = useState('idle')
   const [lastEventAt, setLastEventAt] = useState(null)
+  const [runControl, setRunControl] = useState('running')
+  const [executionState, setExecutionState] = useState(null)
+  const [humanVotes, setHumanVotes] = useState([])
+
 
   const eventSourceRef = useRef(null)
   const cursorRef = useRef(0)
@@ -92,6 +99,8 @@ export function useAgenticSession() {
       num_rounds: Number(sessionConfig.numRounds ?? sessionConfig.num_rounds ?? 2),
       workflow_type: workflowTypes[workflowType] || workflowType || 'contract_review',
       jurisdiction: sessionConfig.jurisdiction || 'BR',
+      provider_mode: sessionConfig.providerMode || 'primary',
+      backup_consent: sessionConfig.backupConsent === true,
       urgency: sessionConfig.urgency || 'normal',
     }
 
@@ -102,7 +111,7 @@ export function useAgenticSession() {
     setError(null)
 
     try {
-      const res = await fetch(`${API_BASE}/api/sessions`, {
+      const res = await authorizedFetch(`${API_BASE}/api/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(apiConfig),
@@ -120,7 +129,7 @@ export function useAgenticSession() {
       setStatus('preview')
       return data.session_id
     } catch (err) {
-      setError(`Failed to create session: ${err.message}`)
+      setError(`Falha ao criar a sessão: ${err.message}`)
       setStatus('error')
       return null
     }
@@ -128,12 +137,12 @@ export function useAgenticSession() {
 
   const confirmAndStart = useCallback(async (selectedFile = documentFile) => {
     if (!sessionId) {
-      setError('Create an analysis session before starting the debate.')
+      setError('Crie uma sessão de análise antes de iniciar o debate.')
       setStatus('error')
       return false
     }
     if (!(selectedFile instanceof Blob)) {
-      setError('Select a contract file before starting the debate.')
+      setError('Selecione o arquivo do contrato antes de iniciar o debate.')
       setStatus('error')
       return false
     }
@@ -146,7 +155,7 @@ export function useAgenticSession() {
       const formData = new FormData()
       formData.append('document', selectedFile)
 
-      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/start`, {
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/start`, {
         method: 'POST',
         body: formData,
       })
@@ -160,7 +169,7 @@ export function useAgenticSession() {
       connectStreamRef.current?.(sessionId, 0)
       return true
     } catch (err) {
-      setError(`Failed to start: ${err.message}`)
+      setError(`Falha ao iniciar: ${err.message}`)
       setStatus('error')
       return false
     }
@@ -177,7 +186,7 @@ export function useAgenticSession() {
 
     setConnectionState('connecting')
     const url = `${API_BASE}/api/sessions/${sid}/stream?cursor=${cursor}`
-    const es = new EventSource(url)
+    const es = new AuthenticatedEventStream(url)
     eventSourceRef.current = es
 
     es.onopen = () => {
@@ -197,7 +206,7 @@ export function useAgenticSession() {
             es.close()
             gapDetectedRef.current = true
             setConnectionState('disconnected')
-            setError('Progress history is incomplete. Reconnect to synchronize with the server.')
+            setError('O histórico de progresso está incompleto. Reconecte-se para sincronizar com o servidor.')
             return
           }
           if (event.event_id <= cursorRef.current) return
@@ -207,6 +216,7 @@ export function useAgenticSession() {
           }
         }
         if (event.type !== 'STREAM_END') {
+          if (event.execution_state) setExecutionState(event.execution_state)
           setEvents(prev => [...prev, event])
           setLastEventAt(event.timestamp || new Date().toISOString())
           cursorRef.current = event.event_id || cursorRef.current + 1
@@ -282,6 +292,30 @@ export function useAgenticSession() {
             setStatus('awaiting_feedback')
             break
 
+          case 'RUN_PAUSE_REQUESTED':
+            setRunControl('pause_requested')
+            break
+
+          case 'RUN_RESUMED':
+            setRunControl('running')
+            break
+
+          case 'HUMAN_VOTE_RECORDED':
+            setHumanVotes(prev => prev.some(v => v.event_id === event.target_event_id)
+              ? prev : [...prev, { event_id: event.target_event_id,
+                  decision: event.decision, reasoning: event.reasoning,
+                  reviewer: event.reviewer, agent: event.agent, round: event.round }])
+            break
+
+          case 'CANCEL_REQUESTED':
+            setRunControl('cancelled')
+            setStatus('cancellation_requested')
+            break
+
+          case 'CANCELLED':
+            setStatus('cancelled')
+            break
+
           case 'ERROR':
             setError(event.message)
             setStatus('error')
@@ -292,7 +326,7 @@ export function useAgenticSession() {
             if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
             setConnectionState('closed')
             // History describes prior stages; the server owns the current terminal state.
-            fetch(`${API_BASE}/api/sessions/${sid}/status`).then(res => res.ok ? res.json() : null)
+            authorizedFetch(`${API_BASE}/api/sessions/${sid}/status`).then(res => res.ok ? res.json() : null)
               .then(remote => { if (remote && eventSourceRef.current === es) setStatus(statusFromServer(remote.status)) })
               .catch(() => {})
             break
@@ -327,7 +361,7 @@ export function useAgenticSession() {
     if (!sessionId) {
       return
     }
-    saveSession({ sessionId, config, documentName })
+    saveSession({ sessionId, config })
   }, [sessionId, config, documentName])
 
   // Restore an in-flight server session after refresh, then replay its event history.
@@ -338,7 +372,7 @@ export function useAgenticSession() {
       if (!saved?.sessionId) return
 
       try {
-        const response = await fetch(`${API_BASE}/api/sessions/${saved.sessionId}/status`)
+        const response = await authorizedFetch(`${API_BASE}/api/sessions/${saved.sessionId}/status`)
         if (!response.ok) throw new Error(`Sessão não disponível (HTTP ${response.status})`)
         const remote = await response.json()
         if (cancelled) return
@@ -349,9 +383,11 @@ export function useAgenticSession() {
           return
         }
         setSessionId(saved.sessionId)
-        setConfig(saved.config || null)
-        setDocumentName(remote.document_name || saved.documentName || null)
+        setConfig(remote.config || saved.config || null)
+        setDocumentName(remote.document_name || null)
         setStatus(restoredStatus)
+        setRunControl(remote.run_control || 'running')
+        setExecutionState(remote.execution_state || null)
         setShowIntentPreview(false)
         if (['running', 'awaiting_gate', 'awaiting_feedback', 'completed', 'error'].includes(remote.status)) {
           connectStream(saved.sessionId, 0)
@@ -371,14 +407,14 @@ export function useAgenticSession() {
     if (!sessionId) return false
 
     try {
-      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/gate-decision`, {
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/gate-decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
           gate_number: gateNumber,
           gate_id: gateId,
-          human_review_id: 'web_user',
+          human_review_id: 'authenticated_principal', // backend derives audit actor from signed token.
           decision,
           reasoning,
           override_score: overrideScore,
@@ -401,7 +437,7 @@ export function useAgenticSession() {
 
       return true
     } catch (err) {
-      setError(`Gate decision failed: ${err.message}`)
+      setError(`Falha ao registrar a decisão da etapa: ${err.message}`)
       return false
     }
   }, [sessionId])
@@ -410,7 +446,7 @@ export function useAgenticSession() {
     if (!sessionId) return
 
     try {
-      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/feedback`, {
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feedback }),
@@ -428,7 +464,7 @@ export function useAgenticSession() {
       connectStream(sessionId, cursorRef.current)
       return true
     } catch (err) {
-      setError(`Feedback failed: ${err.message}`)
+      setError(`Falha ao enviar os comentários: ${err.message}`)
       return false
     }
   }, [sessionId, connectStream])
@@ -437,7 +473,7 @@ export function useAgenticSession() {
     if (!sessionId) return
 
     try {
-      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/accept`, { method: 'POST' })
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/accept`, { method: 'POST' })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(apiErrorMessage(body.detail, `HTTP ${res.status}`))
@@ -445,7 +481,67 @@ export function useAgenticSession() {
       setError(null)
       setStatus('completed')
     } catch (err) {
-      setError(`Accept failed: ${err.message}`)
+      setError(`Falha ao registrar o aceite: ${err.message}`)
+    }
+  }, [sessionId])
+
+  const setDispatchPaused = useCallback(async (pause) => {
+    if (!sessionId) return false
+    try {
+      const operation = pause ? 'pause' : 'resume'
+      const res = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/${operation}`,
+        { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${res.status}`))
+      }
+      const result = await res.json()
+      setRunControl(result.run_control)
+      setError(null)
+      return true
+    } catch (error) {
+      setError(`Falha no controle de envio: ${error.message}`)
+      return false
+    }
+  }, [sessionId])
+
+  const castHumanVote = useCallback(async (eventId, decision, reasoning) => {
+    if (!sessionId) return false
+    try {
+      const response = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/human-votes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId, decision, reasoning }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${response.status}`))
+      }
+      const { vote } = await response.json()
+      setHumanVotes(prev => prev.some(item => item.event_id === eventId) ? prev : [...prev, vote])
+      setError(null)
+      return true
+    } catch (error) {
+      setError(`O voto humano não foi registrado: ${error.message}`)
+      return false
+    }
+  }, [sessionId])
+
+  const cancelAnalysis = useCallback(async () => {
+    if (!sessionId) return false
+    try {
+      const response = await authorizedFetch(`${API_BASE}/api/sessions/${sessionId}/cancel`, { method: 'POST' })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(apiErrorMessage(body.detail, `HTTP ${response.status}`))
+      }
+      const result = await response.json()
+      setStatus(result.status)
+      setError(null)
+      return true
+    } catch (error) {
+      setError(`Falha ao cancelar: ${error.message}`)
+      return false
     }
   }, [sessionId])
 
@@ -477,6 +573,9 @@ export function useAgenticSession() {
     gapDetectedRef.current = false
     setConnectionState('idle')
     setLastEventAt(null)
+    setRunControl('running')
+    setExecutionState(null)
+    setHumanVotes([])
   }, [])
 
   return {
@@ -490,6 +589,9 @@ export function useAgenticSession() {
     devilAdvocate,
     finalSynthesis,
     executionMetrics,
+    runControl,
+    executionState,
+    humanVotes,
     error,
     config,
     documentName,
@@ -502,6 +604,9 @@ export function useAgenticSession() {
     submitGateDecision,
     submitFeedback,
     acceptResult,
+    cancelAnalysis,
+    setDispatchPaused,
+    castHumanVote,
     reset,
     setShowIntentPreview,
   }

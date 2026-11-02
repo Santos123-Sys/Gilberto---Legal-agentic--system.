@@ -50,7 +50,7 @@ export function AuditTrail({ events, gates, className = '' }) {
           />
         ))}
         {filtered.length === 0 && (
-          <p className="text-sm text-slate-500 italic">No events recorded yet.</p>
+          <p className="text-sm text-slate-500 italic">Nenhum evento registrado ainda.</p>
         )}
       </div>
     </div>
@@ -61,27 +61,27 @@ function TimelineItem({ item, isLast }) {
   const config = TYPE_CONFIG[item._type] || TYPE_CONFIG.event
 
   const label = useMemo(() => {
-    if (item._type === 'gate') return `Gate ${item.gate_number} ${item.status}`
+    if (item._type === 'gate') return `Etapa ${item.gate_number}: ${item.status}`
     if (item._type === 'event') {
       const labels = {
-        DEBATE_START: 'Analysis started',
-        CLUSTER_START: `Cluster started: ${item.cluster_name || item.cluster}`,
-        CLUSTER_COMPLETE: `Cluster complete: ${item.cluster_name || item.cluster}`,
-        AGENT_THINKING: `${item.agent} analyzing`,
-        AGENT_ANALYSIS_COMPLETE: `${item.agent} completed analysis`,
-        DEVILS_ADVOCATE_START: 'Devil\'s Advocate audit started',
-        DEVILS_ADVOCATE_COMPLETE: `Devil\'s Advocate found ${item.identified_gaps?.length || 0} gaps`,
-        MASTER_MANAGER_START: 'Master Manager synthesis started',
-        MASTER_MANAGER_COMPLETE: 'Final synthesis complete',
-        GATE_TRIGGERED: `Gate ${item.gate_number} triggered`,
-        GATE_RESOLVED: `Gate ${item.gate_number} resolved: ${item.decision}`,
-        ROUND_COMPLETE: `Round ${item.round} complete`,
-        DEBATE_COMPLETE: 'Analysis complete',
-        ERROR: `Error: ${item.message?.slice(0, 80)}`,
+        DEBATE_START: 'Análise iniciada',
+        CLUSTER_START: `Grupo iniciado: ${item.cluster_name || item.cluster}`,
+        CLUSTER_COMPLETE: `Grupo concluído: ${item.cluster_name || item.cluster}`,
+        AGENT_THINKING: `${item.agent} analisando`,
+        AGENT_ANALYSIS_COMPLETE: `${item.agent} concluiu a análise`,
+        DEVILS_ADVOCATE_START: 'Auditoria do advogado do diabo iniciada',
+        DEVILS_ADVOCATE_COMPLETE: `O advogado do diabo encontrou ${item.identified_gaps?.length || 0} lacuna(s)`,
+        MASTER_MANAGER_START: 'Síntese do coordenador-geral iniciada',
+        MASTER_MANAGER_COMPLETE: 'Síntese final concluída',
+        GATE_TRIGGERED: `Etapa ${item.gate_number} acionada`,
+        GATE_RESOLVED: `Etapa ${item.gate_number} resolvida: ${item.decision}`,
+        ROUND_COMPLETE: `Rodada ${item.round} concluída`,
+        DEBATE_COMPLETE: 'Análise concluída',
+        ERROR: `Erro: ${item.message?.slice(0, 80)}`,
       }
       return labels[item.type] || item.type
     }
-    return 'Unknown'
+    return 'Desconhecido'
   }, [item])
 
   const time = new Date(item._time).toLocaleTimeString('en-US', {

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Sourced by nginx official docker entrypoint before envsubst template rendering.
+# This picks the actual resolver for Railway's isolated private mesh.
+resolved="$(awk '$1 == "nameserver" {print $2; exit}' /etc/resolv.conf)"
+[ -n "$resolved" ] || resolved="127.0.0.11"
+case "$resolved" in
+  *:*) export GILBERTO_DNS_RESOLVER="[$resolved]" ;;
+  *) export GILBERTO_DNS_RESOLVER="$resolved" ;;
+esac

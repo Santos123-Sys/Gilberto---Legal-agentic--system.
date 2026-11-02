@@ -4,13 +4,16 @@ import os
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from datetime import datetime, timezone
+import run_control
 
 class SessionCheckpointError(RuntimeError):
     """The saved session exists but cannot be safely reconstructed."""
 
 
 ENGINE_FIELDS = ('current_round', 'cluster_summaries', 'devil_advocate_output',
-                 'master_summaries', 'feedback_agents', 'execution_metrics')
+                 'master_summaries', 'feedback_agents', 'execution_metrics',
+                 '_legal_evidence_audits')
 
 
 def connect():
@@ -31,8 +34,11 @@ def is_ready() -> bool:
 
 
 def save(session):
+    run_control.synchronize(session)
     engine = session['engine']
     payload = {key: value for key, value in session.items() if key not in ('engine', 'task')}
+    checkpoint_at = datetime.now(timezone.utc).isoformat()
+    payload['last_checkpoint_at'] = checkpoint_at
     payload['engine_state'] = {key: getattr(engine, key) for key in ENGINE_FIELDS}
     payload['engine_state']['gate_records'] = engine.get_all_gate_records()
     # sqlite3.Connection's context manager commits, but does not close the connection.
@@ -41,6 +47,7 @@ def save(session):
         with db:
             db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?)',
                        (session['id'], json.dumps(payload, ensure_ascii=False)))
+    session['last_checkpoint_at'] = checkpoint_at
 
 
 def load(session_id, engine_factory):
@@ -52,17 +59,30 @@ def load(session_id, engine_factory):
         session = json.loads(row[0])
         state = session.pop('engine_state')
         config = session['config']
-        engine = engine_factory(session_id, config['num_agents'], config['num_rounds'], config['workflow_type'])
+        engine = engine_factory(session_id, config['num_agents'], config['num_rounds'],
+                                config['workflow_type'], provider_mode=config.get("provider_mode", "primary"),
+                                backup_consent=config.get("backup_consent") is True)
         engine.review_depth = config.get("review_depth", "full")
         for key in ENGINE_FIELDS:
-            setattr(engine, key, state[key])
+            if key == '_legal_evidence_audits':
+                # Older checkpoints predate the legal audit and must stay
+                # readable without inventing retrospectively reviewed claims.
+                evidence = state.get(key, [])
+                if not isinstance(evidence, list):
+                    raise ValueError("Invalid persisted legal audit")
+                setattr(engine, key, evidence)
+            else:
+                setattr(engine, key, state[key])
         engine.gate_evaluator.gate_records = state['gate_records']
         engine.gate_evaluator.pending_gates = [g for g in state['gate_records'] if g['status'] == 'pending']
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise SessionCheckpointError("Stored checkpoint cannot be reconstructed") from exc
     session.update(engine=engine, task=None)
-    if session['status'] in ('running', 'awaiting_gate'):
+    if session['status'] in ('running', 'awaiting_gate', 'cancellation_requested'):
         session['status'] = 'error'
+        session['interrupted'] = True
+        session['pause_acknowledged'] = False
+        engine._provider_aborted = True
         session['error'] = 'Execution was interrupted by a server restart. Saved findings and review records are retained. Start a new analysis to continue safely.'
         session['events'].append({'type': 'ERROR', 'message': session['error'],
                                   'event_id': len(session['events']) + 1, 'session_id': session_id})

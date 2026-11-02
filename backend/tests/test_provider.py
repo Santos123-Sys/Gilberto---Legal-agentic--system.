@@ -96,7 +96,7 @@ class ReviewDepthTests(unittest.IsolatedAsyncioTestCase):
         with patch('engines.debate_engine_v3._run_crew', side_effect=ProviderError('authentication','Update the provider credential')) as call:
             for _ in range(2):
                 with self.assertRaisesRegex(ProviderError,'credential'):
-                    await engine._run_agent({'role':'Synthetic'},'Synthetic')
+                    await engine._run_agent(CLUSTERS['foundation']['agents'][0],'Synthetic',cluster_id='foundation')
         self.assertEqual(call.call_count,1)
         self.assertEqual(engine.execution_metrics['model_tasks'][0]['error_code'],'authentication')
 
@@ -107,7 +107,7 @@ class PlanTests(unittest.IsolatedAsyncioTestCase):
         from models.schemas import SessionCreateRequest
         with patch.object(settings, 'ACTIVE_CLUSTERS', ','.join(CLUSTERS)):
             for depth, calls, agents in (('full',47,20),('focused',12,5)):
-                result = await main.create_session(SessionCreateRequest(review_depth=depth))
+                result = await main.create_session(SessionCreateRequest(review_depth=depth), main.Principal('https://identity.example/', 'test-lawyer'))
                 self.assertEqual(result.config['initial_model_calls'],calls)
                 self.assertEqual(result.config['num_agents'],agents)
                 self.assertEqual(main.sessions[result.session_id]['engine'].review_depth,depth)

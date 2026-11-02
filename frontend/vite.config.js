@@ -9,6 +9,9 @@ export default defineConfig({
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
+        headers: process.env.VITE_AUTH_MODE === 'local' ? {
+          'X-Gilberto-Proxy-Auth': process.env.GILBERTO_PROXY_SECRET || 'unconfigured',
+        } : {},
       },
     },
   },

@@ -2,9 +2,9 @@ import React, { useState } from 'react'
 import { Shield, AlertTriangle, Award, CheckCircle, Edit, RefreshCw } from 'lucide-react'
 
 const GATE_CONFIG = {
-  1: { name: 'Low Confidence Review', icon: Shield, color: 'yellow', description: 'One or more clusters have low confidence in their analysis' },
-  2: { name: 'Devil\'s Advocate Gaps', icon: AlertTriangle, color: 'red', description: 'Critical reasoning gaps were identified in the analysis' },
-  3: { name: 'Crítico Verification', icon: Award, color: 'purple', description: 'Final classification is Crítico — requires senior review' },
+  1: { name: 'Revisão por baixa confiança', icon: Shield, color: 'yellow', description: 'Um ou mais grupos têm baixa confiança em sua análise' },
+  2: { name: 'Lacunas apontadas pelo advogado do diabo', icon: AlertTriangle, color: 'red', description: 'Foram identificadas lacunas críticas de fundamentação na análise' },
+  3: { name: 'Verificação de classificação Crítico', icon: Award, color: 'purple', description: 'A classificação final é Crítico — exige revisão sênior' },
 }
 
 export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }) {
@@ -37,7 +37,7 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
             <config.icon size={20} className={`text-${config.color}-400`} />
           </div>
           <div>
-            <h3 className="font-display text-lg text-slate-100">Gate {gate.gate_number}: {config.name}</h3>
+            <h3 className="font-display text-lg text-slate-100">Etapa {gate.gate_number}: {config.name}</h3>
             <p className="text-sm text-slate-400">{config.description}</p>
           </div>
         </div>
@@ -46,23 +46,23 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
 
       {/* Trigger details */}
       <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 mb-4">
-        <h4 className="text-xs font-medium text-slate-400 mb-2">TRIGGER DETAILS</h4>
+        <h4 className="text-xs font-medium text-slate-400 mb-2">DETALHES DO ACIONAMENTO</h4>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
-            <span className="text-slate-500">Type:</span>
+            <span className="text-slate-500">Tipo:</span>
             <span className="text-slate-300 ml-1">{gate.trigger?.trigger_type || gate.trigger_type}</span>
           </div>
           <div>
-            <span className="text-slate-500">Value:</span>
+            <span className="text-slate-500">Valor:</span>
             <span className="text-slate-300 ml-1">{gate.trigger?.trigger_value ?? gate.trigger_value}</span>
           </div>
           <div>
-            <span className="text-slate-500">Threshold:</span>
+            <span className="text-slate-500">Limite:</span>
             <span className="text-slate-300 ml-1">{gate.trigger?.threshold ?? gate.threshold}</span>
           </div>
           {gate.affected_cluster && (
             <div>
-              <span className="text-slate-500">Cluster:</span>
+              <span className="text-slate-500">Grupo:</span>
               <span className="text-slate-300 ml-1">{gate.affected_cluster}</span>
             </div>
           )}
@@ -73,10 +73,10 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
       {/* Cluster summary under review */}
       {clusterSummary && (
         <div className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/30 mb-4">
-          <h4 className="text-xs font-medium text-slate-400 mb-2">CLUSTER SUMMARY UNDER REVIEW</h4>
+          <h4 className="text-xs font-medium text-slate-400 mb-2">RESUMO DO GRUPO EM REVISÃO</h4>
           <div className="flex items-center gap-4 text-sm">
-            <span className="text-slate-300">Score: <strong>{clusterSummary.aggregated_score}</strong></span>
-            <span className="text-slate-300">Confidence: <strong>{clusterSummary.confidence_aggregate}</strong></span>
+            <span className="text-slate-300">Pontuação: <strong>{clusterSummary.aggregated_score}</strong></span>
+            <span className="text-slate-300">Confiança: <strong>{clusterSummary.confidence_aggregate}</strong></span>
             <span className={`px-2 py-0.5 rounded text-xs ${
               clusterSummary.classification === 'Crítico' ? 'bg-red-500/20 text-red-400' :
               clusterSummary.classification === 'Relevante' ? 'bg-yellow-500/20 text-yellow-400' :
@@ -92,7 +92,7 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
       {/* DA findings for Gate 2 */}
       {daFindings && daFindings.length > 0 && (
         <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/20 mb-4">
-          <h4 className="text-xs font-medium text-red-400 mb-2">DEVIL'S ADVOCATE FINDINGS</h4>
+          <h4 className="text-xs font-medium text-red-400 mb-2">CONCLUSÕES DO ADVOGADO DO DIABO</h4>
           <div className="space-y-2">
             {daFindings.slice(0, 5).map((gap, i) => (
               <div key={i} className="flex items-start gap-2 text-sm">
@@ -109,27 +109,27 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
 
       {/* Decision buttons */}
       <div className="mb-4">
-        <h4 className="text-xs font-medium text-slate-400 mb-2">YOUR DECISION</h4>
-        <div role="group" aria-label="Review decision" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <h4 className="text-xs font-medium text-slate-400 mb-2">SUA DECISÃO</h4>
+        <div role="group" aria-label="Decisão de revisão" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <DecisionButton
             selected={decision === 'approve'}
             onClick={() => setDecision('approve')}
             icon={<CheckCircle size={16} />}
-            label="Approve"
+            label="Aprovar"
             color="green"
           />
           <DecisionButton
             selected={decision === 'override'}
             onClick={() => setDecision('override')}
             icon={<Edit size={16} />}
-            label="Override"
+            label="Substituir"
             color="yellow"
           />
           <DecisionButton
             selected={decision === 'request_reanalysis'}
             onClick={() => setDecision('request_reanalysis')}
             icon={<RefreshCw size={16} />}
-            label="Re-analyze"
+            label="Reanalisar"
             color="red"
           />
         </div>
@@ -139,10 +139,10 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
       {decision === 'override' && (
         <div className="mb-4 p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20">
           <label className="block text-xs font-medium text-slate-400 mb-2">
-            Override Score: <span className="text-yellow-400 font-bold">{overrideScore.toFixed(1)}</span>
+            Pontuação substituta: <span className="text-yellow-400 font-bold">{overrideScore.toFixed(1)}</span>
           </label>
           <input
-            aria-label="Override risk score" type="range" min="0" max="10" step="0.1"
+            aria-label="Pontuação de risco substituta" type="range" min="0" max="10" step="0.1"
             value={overrideScore}
             onChange={e => setOverrideScore(parseFloat(e.target.value))}
             className="w-full accent-yellow-500"
@@ -158,13 +158,13 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
       {/* Reasoning */}
       <div className="mb-4">
         <label htmlFor={`reasoning-${gate.gate_id}`} className="block text-xs font-medium text-slate-400 mb-2">
-          EXPERT REASONING <span className="text-red-400">*</span>
+          FUNDAMENTAÇÃO DO ESPECIALISTA <span className="text-red-400">*</span>
         </label>
         <textarea
           id={`reasoning-${gate.gate_id}`}
           value={reasoning}
           onChange={e => setReasoning(e.target.value)}
-          placeholder="Explain your decision in detail. This will be recorded in the audit trail."
+          placeholder="Explique sua decisão em detalhes. Ela será registrada na trilha de auditoria."
           className="w-full h-28 bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-gold-500/50 resize-none"
         />
       </div>
@@ -179,7 +179,7 @@ export function GateReviewPanel({ gate, clusterSummary, daFindings, onDecision }
             : 'bg-slate-700 text-slate-500 cursor-not-allowed'
         }`}
       >
-        {submitting ? 'Submitting…' : 'Submit Decision'}
+        {submitting ? 'Enviando…' : 'Enviar decisão'}
       </button>
     </div>
   )

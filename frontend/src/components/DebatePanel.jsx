@@ -3,20 +3,20 @@ import { AgentCard } from './AgentCard'
 import { Activity, Zap, Shield, Scale } from 'lucide-react'
 
 const EVENT_LABEL = {
-  DEBATE_START: { icon: '🚀', label: 'Debate started', color: 'text-gold-400' },
-  ROUND_START: { icon: '🔔', label: 'Round started', color: 'text-blue-400' },
-  PHASE_START: { icon: '▶', label: 'Phase started', color: 'text-slate-400' },
-  AGENT_THINKING: { icon: '💭', label: 'Agent analyzing', color: 'text-gold-300' },
-  AGENT_ANALYSIS_COMPLETE: { icon: '✅', label: 'Analysis complete', color: 'text-green-400' },
-  AGENT_VOTING: { icon: '🗳️', label: 'Peer review', color: 'text-blue-300' },
-  AGENT_VOTE_CAST: { icon: '📊', label: 'Scores submitted', color: 'text-purple-400' },
-  ROUND_COMPLETE: { icon: '🏁', label: 'Round complete', color: 'text-gold-400' },
-  DEBATE_COMPLETE: { icon: '⚖️', label: 'Debate complete', color: 'text-green-300' },
-  FEEDBACK_AGENT_CREATED: { icon: '🆕', label: 'Feedback agent created', color: 'text-cyan-400' },
-  ERROR: { icon: '❌', label: 'Error', color: 'text-red-400' },
+  DEBATE_START: { icon: '🚀', label: 'Debate iniciado', color: 'text-gold-400' },
+  ROUND_START: { icon: '🔔', label: 'Rodada iniciada', color: 'text-blue-400' },
+  PHASE_START: { icon: '▶', label: 'Fase iniciada', color: 'text-slate-400' },
+  AGENT_THINKING: { icon: '💭', label: 'Agente analisando', color: 'text-gold-300' },
+  AGENT_ANALYSIS_COMPLETE: { icon: '✅', label: 'Análise concluída', color: 'text-green-400' },
+  AGENT_VOTING: { icon: '🗳️', label: 'Revisão entre pares', color: 'text-blue-300' },
+  AGENT_VOTE_CAST: { icon: '📊', label: 'Pontuações enviadas', color: 'text-purple-400' },
+  ROUND_COMPLETE: { icon: '🏁', label: 'Rodada concluída', color: 'text-gold-400' },
+  DEBATE_COMPLETE: { icon: '⚖️', label: 'Debate concluído', color: 'text-green-300' },
+  FEEDBACK_AGENT_CREATED: { icon: '🆕', label: 'Agente de comentários criado', color: 'text-cyan-400' },
+  ERROR: { icon: '❌', label: 'Erro', color: 'text-red-400' },
 }
 
-const PHASE_LABEL = { analysis: 'Analysis Phase', voting: 'Peer Review & Voting', aggregation: 'Synthesis & Aggregation' }
+const PHASE_LABEL = { analysis: 'Fase de análise', voting: 'Revisão entre pares e votação', aggregation: 'Síntese e agregação' }
 const EMPTY_OBJECT = Object.freeze({})
 const EMPTY_ARRAY = Object.freeze([])
 
@@ -145,7 +145,7 @@ export function DebatePanel({ agents, events, rounds, currentRound, currentPhase
           {Object.keys(safeAgents).length === 0 && (
             <div className="card p-6 text-center text-slate-500 text-sm">
               <Activity size={24} className="mx-auto mb-2 opacity-30" />
-              Agents will appear here as they activate
+              Os agentes aparecerão aqui à medida que forem ativados
             </div>
           )}
         </div>
@@ -180,7 +180,7 @@ export function DebatePanel({ agents, events, rounds, currentRound, currentPhase
               )
             })}
             {safeEvents.length === 0 && (
-              <p className="text-xs text-slate-600 text-center py-6">Waiting for events…</p>
+              <p className="text-xs text-slate-600 text-center py-6">Aguardando eventos…</p>
             )}
           </div>
         </div>

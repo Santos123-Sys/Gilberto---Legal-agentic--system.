@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './authenticated-fixture.js'
 
 test('interrupted execution is described as stopped, never shown as agents still working', async ({ page }) => {
   await page.addInitScript(() => {
@@ -16,15 +16,15 @@ test('interrupted execution is described as stopped, never shown as agents still
   })
   await page.goto('/')
   await page.locator('#doc-upload').setInputFiles({ name: 'test.txt', mimeType: 'text/plain', buffer: Buffer.from('contract') })
-  await page.getByRole('button', { name: 'Start Debate' }).click()
-  await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
+  await page.getByRole('button', { name: 'Iniciar debate' }).click()
+  await page.getByRole('button', { name: 'Prosseguir com a análise' }).click()
   await expect.poll(() => page.evaluate(() => window.testStreams.length)).toBe(1)
   await page.evaluate(() => window.testStreams[0].onmessage({ data: JSON.stringify({
     event_id: 1, type: 'ERROR', message: 'Review was interrupted',
   }) }))
-  await expect(page.getByRole('heading', { name: 'Analysis stopped — review incomplete' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Your legal teams are working' })).toHaveCount(0)
-  await expect(page.getByText('This is not an accepted or fully verified legal analysis.', { exact: false })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Análise interrompida — revisão incompleta' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Suas equipes jurídicas estão trabalhando' })).toHaveCount(0)
+  await expect(page.getByText('Esta não é uma análise jurídica aceita nem integralmente verificada.', { exact: false })).toBeVisible()
 })
 
 
@@ -44,8 +44,8 @@ test('feedback round failure cannot display previous-round green stage completio
   })
   await page.goto('/')
   await page.locator('#doc-upload').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('synthetic contract') })
-  await page.getByRole('button', { name: 'Start Debate' }).click()
-  await page.getByRole('button', { name: 'Proceed with Analysis' }).click()
+  await page.getByRole('button', { name: 'Iniciar debate' }).click()
+  await page.getByRole('button', { name: 'Prosseguir com a análise' }).click()
   await expect.poll(() => page.evaluate(() => window.testStreams.length)).toBe(1)
   await page.evaluate(() => {
     const events = [
@@ -63,9 +63,9 @@ test('feedback round failure cannot display previous-round green stage completio
       window.testStreams[0].onmessage({ data: JSON.stringify(event) })
     }
   })
-  await expect(page.getByRole('heading', { name: 'Analysis stopped — review incomplete' })).toBeVisible()
-  await expect(page.getByText('foundation review failed', { exact: false }).first()).toBeVisible()
-  const synthesisStage = page.getByText('Manager synthesis', { exact: true }).first().locator('..').locator('..')
+  await expect(page.getByRole('heading', { name: 'Análise interrompida — revisão incompleta' })).toBeVisible()
+  await expect(page.getByText('Falha na revisão de foundation', { exact: false }).first()).toBeVisible()
+  const synthesisStage = page.getByText('Síntese do coordenador', { exact: true }).first().locator('..').locator('..')
   await expect(synthesisStage).not.toHaveClass(/border-emerald-500/)
-  await expect(page.getByText('Final analysis', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Análise final', { exact: true }).first()).toBeVisible()
 })
