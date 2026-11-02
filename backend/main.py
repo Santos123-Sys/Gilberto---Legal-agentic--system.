@@ -553,6 +553,12 @@ async def health():
     }
 
 
+# Fontes jurídicas: ingestão (admin) e busca lexical, sempre com principal autenticado.
+from legal_sources.router import build_legal_router  # noqa: E402
+
+app.include_router(build_legal_router(current_principal, settings))
+
+
 @app.get("/api/ready")
 async def ready():
     # Liveness and readiness differ: don't route users to an instance that
